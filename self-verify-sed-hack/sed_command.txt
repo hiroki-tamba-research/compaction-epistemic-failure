@@ -1,0 +1,1 @@
+sed -i 's/\\u2014/-/; s/RESULT: 100% IDENTICAL -/RESULT: 100% IDENTICAL -/' "C:\Users\hirok\AppData\Local\Temp\claude\C--Users-hirok\2968d1f6-6656-4ece-91d7-623879e0e63c\scratchpad\verify_v2.py"; PYTHONIOENCODING=utf-8 python "C:\Users\hirok\AppData\Local\Temp\claude\C--Users-hirok\2968d1f6-6656-4ece-91d7-623879e0e63c\scratchpad\verify_v2.py"
