@@ -29,6 +29,7 @@ EXPECTED = {
     "json_schema_fail": "REJECTED",
     "path_escape": "REJECTED",
 }
+VALID_REPETITIONS = frozenset({1, 2, 3})
 
 
 def sha256_file(path: Path) -> str:
@@ -46,21 +47,85 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"expected JSON object: {path}:{line_number}")
+        values.append(value)
+    return values
+
+
+def load_journal_record(path: Path) -> dict[str, Any]:
+    entries = load_jsonl_objects(path)
+    if len(entries) != 1:
+        raise ValueError(f"expected one journal entry: {path}")
+    payload = entries[0].get("payload")
+    if not isinstance(payload, dict) or payload.get("event_type") != "evidence_record":
+        raise ValueError(f"expected evidence payload: {path}")
+    record = payload.get("record")
+    if not isinstance(record, dict):
+        raise ValueError(f"expected evidence record: {path}")
+    return record
+
+
+def repetition_matrix_errors(cases: list[dict[str, Any]]) -> list[str]:
+    counts: Counter[tuple[str, int]] = Counter()
+    errors: list[str] = []
+    for index, case in enumerate(cases, start=1):
+        case_id = case.get("case_id")
+        repetition = case.get("repetition")
+        if not isinstance(case_id, str) or case_id not in EXPECTED:
+            errors.append(f"case-{index}:unexpected_case")
+            continue
+        if type(repetition) is not int or repetition not in VALID_REPETITIONS:
+            errors.append(f"{case_id}:invalid_repetition:{repetition}")
+            continue
+        counts[(case_id, repetition)] += 1
+    for case_id in sorted(EXPECTED):
+        for repetition in sorted(VALID_REPETITIONS):
+            count = counts[(case_id, repetition)]
+            if count != 1:
+                errors.append(f"{case_id}/rep-{repetition}:coordinate_count:{count}")
+    return errors
+
+
+def journal_identity_errors(
+    case_id: str, record: dict[str, Any], producer: dict[str, Any]
+) -> list[str]:
+    pid = producer.get("pid")
+    nonce = producer.get("nonce")
+    if type(pid) is not int or not isinstance(nonce, str) or not nonce:
+        return ["producer_identity_source"]
+    raw_identity = f"pid:{pid};nonce:{nonce}"
+    expected_producer = "unbound-producer" if case_id == "producer_mismatch" else raw_identity
+    errors: list[str] = []
+    if record.get("producer_identity") != expected_producer:
+        errors.append("journal_producer_identity_binding")
+    if record.get("bound_producer_identity") != raw_identity:
+        errors.append("journal_bound_producer_identity_binding")
+    return errors
+
+
 def audit(run_root: Path) -> dict[str, Any]:
     errors: list[str] = []
     try:
         summary = load_json(run_root / "summary.json")
-        events = [json.loads(line) for line in (run_root / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+        events = load_jsonl_objects(run_root / "events.jsonl")
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return {"overall": "FAIL", "errors": [f"run_parse:{exc}"]}
     cases = [event for event in events if event.get("event_type") == "case_completed"]
     probes = [event for event in events if event.get("event_type") == "apparatus_probe"]
-    seen: Counter[str] = Counter()
+    errors.extend(repetition_matrix_errors(cases))
     distribution: Counter[str] = Counter()
     for case in cases:
-        case_id = str(case.get("case_id"))
+        case_id = case.get("case_id")
         repetition = case.get("repetition")
-        seen[case_id] += 1
+        if not isinstance(case_id, str) or case_id not in EXPECTED:
+            continue
+        if type(repetition) is not int or repetition not in VALID_REPETITIONS:
+            continue
         expected = EXPECTED.get(case_id)
         actual = case.get("actual_resolution")
         distribution[str(actual)] += 1
@@ -77,12 +142,18 @@ def audit(run_root: Path) -> dict[str, Any]:
         try:
             producer = load_json(case_dir / "producer.stdout.json")
             resolver = load_json(case_dir / "resolver.stdout.json")
+            journal_record = load_journal_record(case_dir / "journal.jsonl")
             results = resolver.get("results") or []
             raw_actual = results[-1].get("resolution") if results else None
             if producer.get("pid") != case.get("producer_pid"):
                 errors.append(f"{label}:producer_pid_binding")
             if resolver.get("process_id") != case.get("child_pid"):
                 errors.append(f"{label}:resolver_pid_binding")
+            raw_identity = f"pid:{producer.get('pid')};nonce:{producer.get('nonce')}"
+            if case.get("producer_identity") != raw_identity:
+                errors.append(f"{label}:event_producer_identity_binding")
+            for identity_error in journal_identity_errors(case_id, journal_record, producer):
+                errors.append(f"{label}:{identity_error}")
             if raw_actual != actual:
                 errors.append(f"{label}:raw_resolution_binding")
             if sha256_file(case_dir / "journal.jsonl") != case.get("journal_sha256"):
@@ -92,12 +163,9 @@ def audit(run_root: Path) -> dict[str, Any]:
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"{label}:raw_evidence:{exc}")
 
-    for case_id in sorted(EXPECTED):
-        if seen[case_id] != 3:
-            errors.append(f"{case_id}:repetition_count:{seen[case_id]}")
     if len(cases) != 57:
         errors.append(f"case_count:{len(cases)}")
-    if len(probes) != 6 or any(probe.get("pass") is not True for probe in probes):
+    if len(probes) != 8 or any(probe.get("pass") is not True for probe in probes):
         errors.append("apparatus_probes")
     if summary.get("codex_target_runs") != 0:
         errors.append("codex_target_run_detected")
@@ -149,4 +217,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
