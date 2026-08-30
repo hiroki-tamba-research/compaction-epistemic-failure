@@ -95,17 +95,51 @@ non-passing controller result.
 Regression test:
 `AuditorRegressionTests.test_controller_captures_nonobject_case_journal`.
 
+## Third adversarial review
+
+The second hardening commit was also held open for a fresh automated review.
+That review completed at `2026-08-30T03:43:11Z` and reported another P1, a
+second P1, and one P2 finding.
+
+### P1: Boolean journal sequence was accepted as integer sequence 1
+
+Python equality makes `True == 1`. The journal loader now requires the exact
+integer type before comparing the sequence value. Hash fields are also required
+to be lowercase 64-character SHA-256 strings before chain or entry comparison.
+
+Regression test:
+`JournalTests.test_boolean_sequence_is_apparatus_defect`.
+
+### P1: auditor trusted the journal payload without validating its envelope hash
+
+The independent auditor now requires one complete journal envelope, exact
+sequence 1, the all-zero chain root, a lowercase SHA-256 entry hash, and a match
+against its own canonical JSON SHA-256 calculation before it reads the payload.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_recomputes_journal_entry_hash`.
+
+### P2: auditor trusted the controller's apparatus `pass` field
+
+The auditor now independently recomputes every apparatus verdict from its
+recorded expected and actual exit statuses, classifications, error codes,
+detection flags, and stderr. A forged `pass: true` cannot replace the underlying
+probe evidence.
+
+Regression test:
+`AuditorRegressionTests.test_false_probe_pass_flag_is_independently_rejected`.
+
 ## Revised validation
 
-Accepted run: `run-008-second-review-hardening`.
+Accepted run: `run-009-third-review-hardening`.
 
-- unit tests: 19/19;
+- unit tests: 22/22;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
 - evidence manifest entries: 411;
 - evidence manifest SHA-256:
-  `482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38`;
+  `2cbac59be4d11173bb917039dc4a771c7a0491ef64c0cfde145531758ef6dec8`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
