@@ -60,19 +60,55 @@ are failures before the case directory is read.
 Regression test:
 `AuditorRegressionTests.test_duplicate_repetition_ids_are_detected`.
 
+## Second adversarial review
+
+The first hardening commit was not merged immediately. A fresh automated review
+completed at `2026-08-30T03:31:06Z` and reported another P1 plus two P2 findings.
+
+### P1: malformed scalar types were coerced into valid evidence
+
+Numeric identities, Boolean exit status, fractional event counts, and string
+sequence values could be normalized by `str()` and `int()` and reach
+`VERIFIED`. Model construction now performs exact JSON type checks. Boolean is
+not accepted as an integer, hashes must be 64 hexadecimal characters, sequence
+members must be integers, and policy arrays contain only their declared types.
+
+Regression test:
+`CliSchemaTests.test_malformed_field_types_emit_structured_harness_defect`.
+
+### P2: required apparatus probes were count-only
+
+Eight arbitrary passing probe events could satisfy the auditor. The auditor now
+owns an independent set of eight expected probe names and requires every name
+exactly once.
+
+Regression test:
+`AuditorRegressionTests.test_duplicate_probes_cannot_replace_required_probes`.
+
+### P2: regular-case journal shape errors escaped controller handling
+
+The controller's journal parser raised an exception type that its caller did not
+catch. Stored case evidence now goes through one fail-closed loader that converts
+object-shape, JSON, type, and I/O failures into a case-level `parse_error` and a
+non-passing controller result.
+
+Regression test:
+`AuditorRegressionTests.test_controller_captures_nonobject_case_journal`.
+
 ## Revised validation
 
-Accepted run: `run-007-postmerge-hardening`.
+Accepted run: `run-008-second-review-hardening`.
 
-- unit tests: 16/16;
+- unit tests: 19/19;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
 - evidence manifest entries: 411;
 - evidence manifest SHA-256:
-  `6398785db32b5ddc4da80814d852b30ad8b59d94c1c6b9ba476d71139678ad5d`;
+  `482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
 This hardening does not establish correctness outside the tested matrix. It also
 does not turn IERL into a Codex patch or a reproduction of PR #41567.
+
