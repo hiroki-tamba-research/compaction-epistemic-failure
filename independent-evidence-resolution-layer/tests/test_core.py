@@ -15,7 +15,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "controller"))
 
-from audit_run import journal_identity_errors, repetition_matrix_errors  # noqa: E402
+from audit_run import (  # noqa: E402
+    EXPECTED,
+    EXPECTED_PROBES,
+    apparatus_probe_errors,
+    journal_identity_errors,
+    repetition_matrix_errors,
+)
+from run_conformance import journal_envelope, load_stored_case_evidence  # noqa: E402
 from evidence_resolution.cli import resolve_command  # noqa: E402
 from evidence_resolution.model import EvidenceRecord, VerificationRule  # noqa: E402
 from evidence_resolution.resolver import resolve_record  # noqa: E402
@@ -166,6 +173,47 @@ class CliSchemaTests(unittest.TestCase):
             self.assertEqual(document["classification"], "HARNESS_DEFECT")
             self.assertEqual(document["error_code"], "EVIDENCE_SCHEMA")
 
+    def test_malformed_field_types_emit_structured_harness_defect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            content = b"CANARY\n"
+            (root / "artifact.txt").write_bytes(content)
+            malformed = record_for(content).to_dict()
+            malformed.update({
+                "producer_identity": 123,
+                "bound_producer_identity": "123",
+                "producer_exit_status": False,
+                "event_count": 3.9,
+                "event_sequence": ["1", "2", "3"],
+            })
+            journal = JsonlJournal(root / "journal.jsonl")
+            journal.append({"event_type": "evidence_record", "record": malformed})
+            policy = {
+                "policy_version": "IERL-POLICY-1",
+                "rules": {
+                    "r1": {
+                        "record_id": "r1",
+                        "checker": "contains_utf8",
+                        "required_keys": [],
+                        "expected_text": "CANARY",
+                    }
+                },
+            }
+            (root / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+            args = argparse.Namespace(
+                policy=str(root / "policy.json"),
+                journal=str(root / "journal.jsonl"),
+                artifact_root=str(root),
+                run_id="run-1",
+                generation_id="g1",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = resolve_command(args)
+            document = json.loads(output.getvalue())
+            self.assertEqual(exit_code, 70)
+            self.assertEqual(document["classification"], "HARNESS_DEFECT")
+
 
 class AuditorRegressionTests(unittest.TestCase):
     def test_both_wrong_journal_identities_are_detected(self) -> None:
@@ -184,7 +232,7 @@ class AuditorRegressionTests(unittest.TestCase):
 
     def test_duplicate_repetition_ids_are_detected(self) -> None:
         cases = []
-        for case_id in sorted(__import__("audit_run").EXPECTED):
+        for case_id in sorted(EXPECTED):
             repetitions = [1, 1, 1] if case_id == "positive_verified" else [1, 2, 3]
             cases.extend({"case_id": case_id, "repetition": rep} for rep in repetitions)
         errors = repetition_matrix_errors(cases)
@@ -192,6 +240,27 @@ class AuditorRegressionTests(unittest.TestCase):
         self.assertIn("positive_verified/rep-2:coordinate_count:0", errors)
         self.assertIn("positive_verified/rep-3:coordinate_count:0", errors)
 
+    def test_duplicate_probes_cannot_replace_required_probes(self) -> None:
+        probes = [{"probe": name, "pass": True} for name in sorted(EXPECTED_PROBES)]
+        probes[-2:] = [probes[0].copy(), probes[1].copy()]
+        errors = apparatus_probe_errors(probes)
+        self.assertTrue(any(error.endswith(":probe_count:0") for error in errors))
+        self.assertTrue(any(error.endswith(":probe_count:2") for error in errors))
+
+    def test_controller_captures_nonobject_case_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            case_dir = Path(temporary)
+            (case_dir / "producer.stdout.json").write_text("{}\n", encoding="utf-8")
+            (case_dir / "journal.jsonl").write_text(
+                json.dumps(journal_envelope([])) + "\n",  # type: ignore[arg-type]
+                encoding="utf-8",
+            )
+            producer, record, error = load_stored_case_evidence(case_dir)
+            self.assertEqual(producer, {})
+            self.assertEqual(record, {})
+            self.assertIn("journal payload is not an object", error or "")
+
 
 if __name__ == "__main__":
     unittest.main()
+
