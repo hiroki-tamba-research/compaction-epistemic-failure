@@ -610,6 +610,8 @@ def probe_raw_errors(
             if comparison_detects_mismatch(fixture) is not True:
                 errors.append(f"{name}:raw_fixture_semantics")
             document = fixture.get("document")
+            if fixture.get("expected_resolution") != "VERIFIED" or fixture.get("exit_code") != 0:
+                errors.append(f"{name}:raw_fixture_shape")
             if not isinstance(document, dict):
                 errors.append(f"{name}:raw_fixture_shape")
             elif name == "expected_mismatch_detection":
@@ -680,6 +682,50 @@ def probe_raw_errors(
     return errors
 
 
+def producer_coordinate_errors(
+    case_id: str,
+    repetition: int,
+    producer: dict[str, Any],
+    seen_identities: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    expected_nonce = f"{case_id}-rep-{repetition}"
+    if producer.get("nonce") != expected_nonce:
+        errors.append("producer_nonce_coordinate")
+    raw_identity = f"pid:{producer.get('pid')};nonce:{producer.get('nonce')}"
+    if raw_identity in seen_identities:
+        errors.append("producer_identity_reused")
+    seen_identities.add(raw_identity)
+    return errors
+
+
+def resolver_envelope_ok(resolver: dict[str, Any]) -> bool:
+    results = resolver.get("results")
+    return (
+        resolver.get("classification") == "RESOLUTION"
+        and resolver.get("rule_version") == "IERL-1"
+        and isinstance(results, list)
+        and len(results) == 1
+        and isinstance(results[0], dict)
+    )
+
+
+def resolver_process_outcome_ok(
+    case: dict[str, Any],
+    resolver: dict[str, Any],
+    exit_document: dict[str, Any],
+    stderr: str,
+) -> bool:
+    return (
+        exit_document.get("child_pid") == resolver.get("process_id")
+        and exit_document.get("child_pid") == case.get("child_pid")
+        and exit_document.get("exit_code") == 0
+        and case.get("child_exit") == exit_document.get("exit_code")
+        and not stderr
+        and case.get("stderr") == stderr
+    )
+
+
 def audit(run_root: Path) -> dict[str, Any]:
     errors: list[str] = []
     try:
@@ -694,6 +740,7 @@ def audit(run_root: Path) -> dict[str, Any]:
     for probe in probes:
         errors.extend(probe_raw_errors(run_root, probe))
     distribution: Counter[str] = Counter()
+    seen_producer_identities: set[str] = set()
     for case in cases:
         case_id = case.get("case_id")
         repetition = case.get("repetition")
@@ -717,6 +764,14 @@ def audit(run_root: Path) -> dict[str, Any]:
         try:
             producer = load_json(case_dir / "producer.stdout.json")
             resolver = load_json(case_dir / "resolver.stdout.json")
+            producer_exit = load_json(case_dir / "producer.exit.json")
+            resolver_exit = load_json(case_dir / "resolver.exit.json")
+            producer_stderr = (case_dir / "producer.stderr.txt").read_text(
+                encoding="utf-8"
+            ).strip()
+            resolver_stderr = (case_dir / "resolver.stderr.txt").read_text(
+                encoding="utf-8"
+            ).strip()
             journal_record = load_journal_record(case_dir / "journal.jsonl")
             verification_rule = load_verification_rule(
                 case_dir / "policy.json", journal_record["record_id"]
@@ -738,7 +793,10 @@ def audit(run_root: Path) -> dict[str, Any]:
                 current_generation,
                 verification_rule,
             )
-            results = resolver.get("results") or []
+            results = resolver.get("results")
+            if not resolver_envelope_ok(resolver):
+                errors.append(f"{label}:resolver_envelope")
+                results = []
             raw_result = results[-1] if results and isinstance(results[-1], dict) else {}
             raw_actual = raw_result.get("resolution")
             if producer.get("pid") != case.get("producer_pid"):
@@ -746,8 +804,28 @@ def audit(run_root: Path) -> dict[str, Any]:
             if resolver.get("process_id") != case.get("child_pid"):
                 errors.append(f"{label}:resolver_pid_binding")
             raw_identity = f"pid:{producer.get('pid')};nonce:{producer.get('nonce')}"
+            for coordinate_error in producer_coordinate_errors(
+                case_id, repetition, producer, seen_producer_identities
+            ):
+                errors.append(f"{label}:{coordinate_error}")
             if case.get("producer_identity") != raw_identity:
                 errors.append(f"{label}:event_producer_identity_binding")
+            if sha256_file(case_dir / "producer.stdout.json") != case.get(
+                "producer_stdout_sha256"
+            ):
+                errors.append(f"{label}:producer_stdout_hash_binding")
+            if producer.get("sha256") != journal_record["artifacts"][0]["sha256"]:
+                errors.append(f"{label}:producer_artifact_hash_binding")
+            if (
+                producer_exit.get("child_pid") != producer.get("pid")
+                or producer_exit.get("exit_code") != case.get("producer_exit")
+                or producer_stderr
+            ):
+                errors.append(f"{label}:producer_process_outcome")
+            if not resolver_process_outcome_ok(
+                case, resolver, resolver_exit, resolver_stderr
+            ):
+                errors.append(f"{label}:resolver_process_outcome")
             for identity_error in journal_identity_errors(case_id, journal_record, producer):
                 errors.append(f"{label}:{identity_error}")
             if raw_actual != actual:
