@@ -190,6 +190,10 @@ def launch_producer(
     stdout, stderr = child.communicate(timeout=30)
     (case_dir / "producer.stdout.json").write_bytes(stdout.encode("utf-8"))
     (case_dir / "producer.stderr.txt").write_bytes(stderr.encode("utf-8"))
+    (case_dir / "producer.exit.json").write_text(
+        canonical_json({"child_pid": child.pid, "exit_code": int(child.returncode)}) + "\n",
+        encoding="utf-8",
+    )
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -559,6 +563,10 @@ def main() -> int:
             )
             (case_dir / "resolver.stdout.json").write_text(stdout + ("\n" if stdout else ""), encoding="utf-8")
             (case_dir / "resolver.stderr.txt").write_text(stderr + ("\n" if stderr else ""), encoding="utf-8")
+            (case_dir / "resolver.exit.json").write_text(
+                canonical_json({"child_pid": child_pid, "exit_code": exit_code}) + "\n",
+                encoding="utf-8",
+            )
             parse_error = None
             try:
                 document = json.loads(stdout)
