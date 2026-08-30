@@ -57,14 +57,27 @@ def write_journal(path: Path, record: dict[str, Any]) -> None:
 def read_journal_record(path: Path) -> dict[str, Any]:
     envelope = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(envelope, dict):
-        raise RuntimeError("journal envelope is not an object")
+        raise ValueError("journal envelope is not an object")
     payload = envelope.get("payload")
     if not isinstance(payload, dict):
-        raise RuntimeError("journal payload is not an object")
+        raise ValueError("journal payload is not an object")
     record = payload.get("record")
     if not isinstance(record, dict):
-        raise RuntimeError("journal record is not an object")
+        raise ValueError("journal record is not an object")
     return record
+
+
+def load_stored_case_evidence(
+    case_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    try:
+        producer = json.loads((case_dir / "producer.stdout.json").read_text(encoding="utf-8"))
+        if not isinstance(producer, dict):
+            raise ValueError("producer output is not an object")
+        record = read_journal_record(case_dir / "journal.jsonl")
+        return producer, record, None
+    except (OSError, ValueError, TypeError) as exc:
+        return {}, {}, f"stored evidence: {exc}"
 
 
 def write_policy(path: Path, record_id: str | None, rule: dict[str, Any] | None = None) -> None:
@@ -486,15 +499,12 @@ def main() -> int:
             except json.JSONDecodeError as exc:
                 document = {}
                 parse_error = str(exc)
-            try:
-                stored_producer_document = json.loads(
-                    (case_dir / "producer.stdout.json").read_text(encoding="utf-8")
-                )
-                stored_journal_record = read_journal_record(case_dir / "journal.jsonl")
-            except (OSError, json.JSONDecodeError) as exc:
-                stored_producer_document = {}
-                stored_journal_record = {}
-                parse_error = parse_error or f"producer evidence: {exc}"
+            (
+                stored_producer_document,
+                stored_journal_record,
+                stored_evidence_error,
+            ) = load_stored_case_evidence(case_dir)
+            parse_error = parse_error or stored_evidence_error
             passed, actual = compare_resolution(definition["expected"], document, exit_code)
             raw_identity = producer["producer_identity"]
             expected_record_identity = (
@@ -584,3 +594,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
