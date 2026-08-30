@@ -4,18 +4,18 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-010-fourth-review-hardening`. It supersedes runs 006 through 009 for the
+`run-011-fifth-review-hardening`. It supersedes runs 006 through 010 for the
 current source but does not erase their historical results.
 
 Accepted-run result:
 
-- unit tests: 23/23 passed;
+- unit tests: 25/25 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
 - apparatus probes: 8/8 passed;
 - independent auditor: PASS, zero errors;
-- manifest entries: 411, zero closure or hash errors;
+- manifest entries: 431, zero closure or hash errors;
 - separate producer launches: 57, with 57 distinct PID-plus-nonce identities;
 - distinct producer PIDs observed: 53, demonstrating actual Windows PID reuse;
 - distinct resolver PIDs observed: 53;
@@ -77,24 +77,33 @@ Earlier green summaries were not treated as final evidence.
 - run 010 independently validates every required evidence-record field, exact
   integer and array types, SHA-256 fields, and artifact-reference shapes before
   using the journal payload. It passes 23 unit tests, the full conformance matrix,
-  and the revised auditor.
+  and the revised auditor;
+- a fifth adversarial review showed that a schema-valid journal, policy,
+  artifact, and rebuilt manifest could still retain a stale resolver verdict,
+  and that controller-authored probe `actual_*` fields were not bound to raw
+  probe outputs or fixtures;
+- run 011 adds an independent case oracle that applies the retained policy to
+  the retained artifact and compares the complete recomputed result. It also
+  retains and validates every probe's fixture, stdout, stderr, exit status, and
+  child identity. It passes 25 unit tests, the full conformance matrix, and the
+  revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Runs 006 through 009 remain
+an apparatus defect, not a successful validation. Runs 006 through 010 remain
 valid records of what their earlier matrices observed, but none is used as
 evidence that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-010-fourth-review-hardening/events.jsonl`
-- `evidence/runs/run-010-fourth-review-hardening/summary.json`
-- `evidence/runs/run-010-fourth-review-hardening/SHA256SUMS.txt`
+- `evidence/runs/run-011-fifth-review-hardening/events.jsonl`
+- `evidence/runs/run-011-fifth-review-hardening/summary.json`
+- `evidence/runs/run-011-fifth-review-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`5f0ec6dafa318ddd5995ff924cc6f6125768228f5d26fa8cd46e8e939dcc8540`
+`b74622811bf45cc8b777bfc8e67637db5436292bb34a0a62650381b24318374b`
 
 ## Reproduction commands
 
@@ -114,6 +123,9 @@ and actual values instead of trusting the controller's `pass` field. It also
 validates the journal envelope, chain root, and canonical entry hash before
 using its payload. CI uploads the complete generated evidence directory for each
 OS and Python matrix job as a 30-day workflow artifact.
+The auditor also resolves every case independently from the journal, policy,
+artifact bytes, run/generation scope, process outcome, and semantic checker. It
+binds each apparatus event to the retained probe fixture and raw process files.
 
 ## Boundary
 
