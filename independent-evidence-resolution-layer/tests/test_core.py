@@ -20,9 +20,11 @@ from audit_run import (  # noqa: E402
     EXPECTED_PROBES,
     apparatus_probe_errors,
     apparatus_probe_semantics_ok,
+    independent_case_resolution,
     journal_identity_errors,
     load_journal_record,
     repetition_matrix_errors,
+    probe_raw_errors,
     validate_evidence_record_schema,
 )
 from run_conformance import journal_envelope, load_stored_case_evidence  # noqa: E402
@@ -295,6 +297,59 @@ class AuditorRegressionTests(unittest.TestCase):
             path.write_text(json.dumps(envelope) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "event_count must be an integer"):
                 load_journal_record(path)
+
+    def test_auditor_recomputes_case_verdict_from_artifact_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact_root = Path(temporary)
+            content = b"NO MARKER HERE\n"
+            (artifact_root / "artifact.txt").write_bytes(content)
+            record = json.loads(json.dumps(
+                record_for(content, run_id="run-conformance").to_dict()
+            ))
+            rule = {
+                "record_id": "r1",
+                "checker": "contains_utf8",
+                "required_keys": [],
+                "expected_text": "CANARY",
+            }
+            result = independent_case_resolution(record, artifact_root, "g1", rule)
+            self.assertEqual(result["resolution"], "REJECTED")
+            self.assertEqual(result["reason_code"], "TEXT_CHECK_FAILED")
+
+    def test_auditor_binds_probe_verdict_to_input_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            probe_dir = root / "apparatus-nonobject-policy"
+            probe_dir.mkdir()
+            (probe_dir / "policy.json").write_text(
+                json.dumps({"policy_version": "IERL-POLICY-1", "rules": {}}) + "\n",
+                encoding="utf-8",
+            )
+            (probe_dir / "resolver.stdout.json").write_text(
+                json.dumps({
+                    "classification": "HARNESS_DEFECT",
+                    "error_code": "EVIDENCE_SCHEMA",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (probe_dir / "resolver.stderr.txt").write_text("", encoding="utf-8")
+            (probe_dir / "resolver.exit.json").write_text(
+                json.dumps({"child_pid": 123, "exit_code": 70}) + "\n",
+                encoding="utf-8",
+            )
+            probe = {
+                "probe": "nonobject_policy_classification",
+                "probe_dir": "apparatus-nonobject-policy",
+                "child_pid": 123,
+                "actual_exit": 70,
+                "actual_classification": "HARNESS_DEFECT",
+                "actual_error_code": "EVIDENCE_SCHEMA",
+                "stderr": "",
+            }
+            self.assertIn(
+                "nonobject_policy_classification:raw_fixture_semantics",
+                probe_raw_errors(root, probe),
+            )
 
     def test_controller_captures_nonobject_case_journal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
