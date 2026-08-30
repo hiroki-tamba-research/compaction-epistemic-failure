@@ -4,21 +4,21 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-012-sixth-review-hardening`. It supersedes runs 006 through 011 for the
-current source but does not erase their historical results.
+`run-014-seventh-review-hardening-fixed`. It supersedes runs 006 through 012 for
+the current source. Run 013 is a rejected apparatus run and is not accepted.
 
 Accepted-run result:
 
-- unit tests: 27/27 passed;
+- unit tests: 30/30 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
 - apparatus probes: 8/8 passed;
 - independent auditor: PASS, zero errors;
-- manifest entries: 431, zero closure or hash errors;
+- manifest entries: 545, zero closure or hash errors;
 - separate producer launches: 57, with 57 distinct PID-plus-nonce identities;
-- distinct producer PIDs observed: 53, demonstrating actual Windows PID reuse;
-- distinct resolver PIDs observed: 53;
+- distinct producer PIDs observed: 57;
+- distinct resolver PIDs observed: 57;
 - Codex target runs: 0;
 - model output used as verifier evidence: false.
 
@@ -93,24 +93,35 @@ Earlier green summaries were not treated as final evidence.
 - run 012 binds all 19 case names to their defining record, policy, artifact,
   and generation conditions; binds resolver probe stdout PID to the retained
   child PID; and validates comparison-probe fixture shape per probe name. It
-  passes 27 unit tests, the full matrix, and the revised auditor.
+  passes 27 unit tests, the full matrix, and the revised auditor;
+- a seventh adversarial review found that repetitions could reuse one producer
+  identity, expected-mismatch fixture inputs were not fully pinned, regular-case
+  exit/stderr were not independently retained, and resolver stdout envelopes
+  were only partially checked;
+- run 013 added raw producer/resolver exit records but incorrectly required the
+  intentionally missing journal exit status to equal the real producer exit in
+  the `missing_exit` case. The auditor rejected three cases, so run 013 is sealed
+  as `HARNESS_DEFECT` rather than repaired in place;
+- run 014 scopes raw producer exit binding to the event while leaving the
+  intentional journal mutation to the named fixture contract. It passes 30 unit
+  tests, the full matrix, and the revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Runs 006 through 011 remain
+an apparatus defect, not a successful validation. Runs 006 through 012 remain
 valid records of what their earlier matrices observed, but none is used as
 evidence that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-012-sixth-review-hardening/events.jsonl`
-- `evidence/runs/run-012-sixth-review-hardening/summary.json`
-- `evidence/runs/run-012-sixth-review-hardening/SHA256SUMS.txt`
-- per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
-  artifact files below the accepted run directory.
+- `evidence/runs/run-014-seventh-review-hardening-fixed/events.jsonl`
+- `evidence/runs/run-014-seventh-review-hardening-fixed/summary.json`
+- `evidence/runs/run-014-seventh-review-hardening-fixed/SHA256SUMS.txt`
+- per-case producer stdout/stderr/exit, resolver stdout/stderr/exit, journal,
+  policy, and artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`933a646611b728ca125b0066ce0902aef4a8ae180c6a959782a23bd00908603c`
+`50d3b6ae2efb46e418dd188ba6ff5d75e9d18272dad7b1aeb1b068cb81380ba1`
 
 ## Reproduction commands
 
