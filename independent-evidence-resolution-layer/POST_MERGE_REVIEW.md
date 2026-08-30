@@ -173,17 +173,49 @@ independently checks fixture semantics, raw process outcome, and event binding.
 Regression test:
 `AuditorRegressionTests.test_auditor_binds_probe_verdict_to_input_fixture`.
 
+## Sixth adversarial review
+
+A fresh review of head `5e0f94e5519bd35795699c4af56f95d2f916b124`
+completed at `2026-08-30T04:31:56Z` and reported two P1 findings and one P2.
+
+### P1: named cases were not bound to their defining fixtures
+
+A case could be rebuilt with another condition producing the same resolution.
+The auditor now owns a fixture contract for all 19 case names, covering the
+record identity, scope, generation, source, rule version, exit status, event
+sequence, artifact state, policy checker, semantic canary, and JSON condition.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_binds_case_name_to_defining_mutation`.
+
+### P1: probe stdout process ID was not bound to the retained child
+
+Resolver probe stdout must now report the same `process_id` as both the raw exit
+record and the controller event.
+
+Regression coverage is included in:
+`AuditorRegressionTests.test_auditor_binds_probe_verdict_to_input_fixture`.
+
+### P2: missing-result probe accepted any verdict mismatch
+
+The two in-process comparison probes now have distinct fixture contracts. The
+expected-mismatch probe must retain one `REJECTED` result, while the
+missing-result probe must retain a result-less resolution document.
+
+Regression test:
+`AuditorRegressionTests.test_missing_result_probe_requires_missing_results_shape`.
+
 ## Revised validation
 
-Accepted run: `run-011-fifth-review-hardening`.
+Accepted run: `run-012-sixth-review-hardening`.
 
-- unit tests: 25/25;
+- unit tests: 27/27;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
 - evidence manifest entries: 431;
 - evidence manifest SHA-256:
-  `b74622811bf45cc8b777bfc8e67637db5436292bb34a0a62650381b24318374b`;
+  `933a646611b728ca125b0066ce0902aef4a8ae180c6a959782a23bd00908603c`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
