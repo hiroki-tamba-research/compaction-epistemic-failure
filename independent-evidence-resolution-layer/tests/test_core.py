@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import contextlib
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -10,10 +13,18 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(PROJECT_ROOT / "controller"))
 
+from audit_run import journal_identity_errors, repetition_matrix_errors  # noqa: E402
+from evidence_resolution.cli import resolve_command  # noqa: E402
 from evidence_resolution.model import EvidenceRecord, VerificationRule  # noqa: E402
 from evidence_resolution.resolver import resolve_record  # noqa: E402
-from evidence_resolution.store import JournalError, JsonlJournal  # noqa: E402
+from evidence_resolution.store import (  # noqa: E402
+    JournalError,
+    JsonlJournal,
+    canonical_json,
+    sha256_bytes,
+)
 
 
 def record_for(content: bytes, **updates: object) -> EvidenceRecord:
@@ -122,6 +133,64 @@ class JournalTests(unittest.TestCase):
             with self.assertRaises(JournalError) as caught:
                 JsonlJournal(path).load()
             self.assertEqual(caught.exception.code, "JOURNAL_PARSE")
+
+    def test_non_object_payload_is_apparatus_defect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            unsigned = {"sequence": 1, "previous_hash": "0" * 64, "payload": []}
+            envelope = {**unsigned, "entry_hash": sha256_bytes(canonical_json(unsigned))}
+            path.write_bytes(canonical_json(envelope) + b"\n")
+            with self.assertRaises(JournalError) as caught:
+                JsonlJournal(path).load()
+            self.assertEqual(caught.exception.code, "JOURNAL_SCHEMA")
+
+
+class CliSchemaTests(unittest.TestCase):
+    def test_non_object_policy_emits_structured_harness_defect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            policy = root / "policy.json"
+            policy.write_text("[]\n", encoding="utf-8")
+            args = argparse.Namespace(
+                policy=str(policy),
+                journal=str(root / "journal.jsonl"),
+                artifact_root=str(root),
+                run_id="run-1",
+                generation_id="g1",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = resolve_command(args)
+            document = json.loads(output.getvalue())
+            self.assertEqual(exit_code, 70)
+            self.assertEqual(document["classification"], "HARNESS_DEFECT")
+            self.assertEqual(document["error_code"], "EVIDENCE_SCHEMA")
+
+
+class AuditorRegressionTests(unittest.TestCase):
+    def test_both_wrong_journal_identities_are_detected(self) -> None:
+        record = {
+            "producer_identity": "pid:999;nonce:wrong",
+            "bound_producer_identity": "pid:999;nonce:wrong",
+        }
+        producer = {"pid": 123, "nonce": "positive_verified-rep-1"}
+        self.assertEqual(
+            journal_identity_errors("positive_verified", record, producer),
+            [
+                "journal_producer_identity_binding",
+                "journal_bound_producer_identity_binding",
+            ],
+        )
+
+    def test_duplicate_repetition_ids_are_detected(self) -> None:
+        cases = []
+        for case_id in sorted(__import__("audit_run").EXPECTED):
+            repetitions = [1, 1, 1] if case_id == "positive_verified" else [1, 2, 3]
+            cases.extend({"case_id": case_id, "repetition": rep} for rep in repetitions)
+        errors = repetition_matrix_errors(cases)
+        self.assertIn("positive_verified/rep-1:coordinate_count:3", errors)
+        self.assertIn("positive_verified/rep-2:coordinate_count:0", errors)
+        self.assertIn("positive_verified/rep-3:coordinate_count:0", errors)
 
 
 if __name__ == "__main__":
