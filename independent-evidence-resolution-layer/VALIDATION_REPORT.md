@@ -4,12 +4,12 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-009-third-review-hardening`. It supersedes runs 006 through 008 for the
+`run-010-fourth-review-hardening`. It supersedes runs 006 through 009 for the
 current source but does not erase their historical results.
 
 Accepted-run result:
 
-- unit tests: 22/22 passed;
+- unit tests: 23/23 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
@@ -70,24 +70,31 @@ Earlier green summaries were not treated as final evidence.
 - run 009 requires exact integer journal sequences, validates the journal
   envelope and canonical SHA-256 independently, and recomputes all eight probe
   verdicts from their observed and expected fields. It passes 22 unit tests,
-  the full conformance matrix, and the revised auditor.
+  the full conformance matrix, and the revised auditor;
+- a fourth adversarial review showed that a schema-invalid retained record, such
+  as string `event_count`, could still pass after its journal and manifest hashes
+  were rebuilt because the auditor inspected only identity fields;
+- run 010 independently validates every required evidence-record field, exact
+  integer and array types, SHA-256 fields, and artifact-reference shapes before
+  using the journal payload. It passes 23 unit tests, the full conformance matrix,
+  and the revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Runs 006 through 008 remain
+an apparatus defect, not a successful validation. Runs 006 through 009 remain
 valid records of what their earlier matrices observed, but none is used as
 evidence that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-009-third-review-hardening/events.jsonl`
-- `evidence/runs/run-009-third-review-hardening/summary.json`
-- `evidence/runs/run-009-third-review-hardening/SHA256SUMS.txt`
+- `evidence/runs/run-010-fourth-review-hardening/events.jsonl`
+- `evidence/runs/run-010-fourth-review-hardening/summary.json`
+- `evidence/runs/run-010-fourth-review-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`2cbac59be4d11173bb917039dc4a771c7a0491ef64c0cfde145531758ef6dec8`
+`5f0ec6dafa318ddd5995ff924cc6f6125768228f5d26fa8cd46e8e939dcc8540`
 
 ## Reproduction commands
 
