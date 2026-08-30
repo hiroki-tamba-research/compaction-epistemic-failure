@@ -30,6 +30,6 @@ This reference implementation is not a production Codex patch.
   missed. Those findings are fixed and regression-tested, but there is still no
   formal proof, independent human review, fuzzing, or production load test.
 
-Passing run 007 means only that no mismatch was observed in the specified 19
+Passing run 008 means only that no mismatch was observed in the specified 19
 cases, three repetitions each, plus eight apparatus probes and the revised
 independent auditor. It does not establish correctness outside that matrix.
