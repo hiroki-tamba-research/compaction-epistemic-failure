@@ -1,0 +1,16 @@
+{
+  "accepted_evidence_manifest_sha256": "0e49584f4befa5addc3cffa5a1e8766cedd50a631929c070626003817df80251",
+  "accepted_run": "20260830T-IERL-V1-006",
+  "codex_target_runs": 0,
+  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SELF_VALIDATED",
+  "external_publication": false,
+  "independent_auditor": "PASS",
+  "martin_logic_used": false,
+  "model_output_used_as_evidence": false,
+  "rejected_run": {
+    "reason": "producer raw output overwritten by resolver output; 57 PID binding failures",
+    "run_id": "20260830T-IERL-V1-005",
+    "state": "HARNESS_DEFECT"
+  },
+  "upstream_codex_integration": "NOT_IMPLEMENTED"
+}

@@ -1,0 +1,38 @@
+name: IERL conformance
+
+on:
+  push:
+    paths:
+      - "independent-evidence-resolution-layer/**"
+      - ".github/workflows/ierl-ci.yml"
+  pull_request:
+    paths:
+      - "independent-evidence-resolution-layer/**"
+      - ".github/workflows/ierl-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: independent-evidence-resolution-layer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Conformance matrix
+        shell: bash
+        run: |
+          run_id="ci-${{ runner.os }}-py${{ matrix.python-version }}"
+          python controller/run_conformance.py --run-id "$run_id"
+          python controller/audit_run.py "evidence/runs/$run_id"
+
