@@ -20,6 +20,7 @@ from audit_run import (  # noqa: E402
     EXPECTED_PROBES,
     apparatus_probe_errors,
     apparatus_probe_semantics_ok,
+    case_fixture_errors,
     independent_case_resolution,
     journal_identity_errors,
     load_journal_record,
@@ -329,6 +330,7 @@ class AuditorRegressionTests(unittest.TestCase):
                 json.dumps({
                     "classification": "HARNESS_DEFECT",
                     "error_code": "EVIDENCE_SCHEMA",
+                    "process_id": 999999,
                 }) + "\n",
                 encoding="utf-8",
             )
@@ -346,8 +348,66 @@ class AuditorRegressionTests(unittest.TestCase):
                 "actual_error_code": "EVIDENCE_SCHEMA",
                 "stderr": "",
             }
+            errors = probe_raw_errors(root, probe)
             self.assertIn(
                 "nonobject_policy_classification:raw_fixture_semantics",
+                errors,
+            )
+            self.assertIn(
+                "nonobject_policy_classification:raw_stdout_pid_binding",
+                errors,
+            )
+
+    def test_auditor_binds_case_name_to_defining_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact_root = Path(temporary)
+            content = b"CANARY::sequence_gap::IERL-1\n"
+            (artifact_root / "artifact.txt").write_bytes(content)
+            record = json.loads(json.dumps(
+                record_for(content, run_id="run-conformance").to_dict()
+            ))
+            record.update({
+                "record_id": "record-sequence_gap",
+                "event_count": 3,
+                "event_sequence": [1, 2, 3],
+                "producer_exit_status": None,
+            })
+            rule = {
+                "record_id": "record-sequence_gap",
+                "checker": "contains_utf8",
+                "required_keys": [],
+                "expected_text": "CANARY::sequence_gap::IERL-1",
+            }
+            errors = case_fixture_errors(
+                "sequence_gap", record, artifact_root, "generation-1", rule
+            )
+            self.assertIn("event_sequence", errors)
+            self.assertIn("producer_exit_status", errors)
+
+    def test_missing_result_probe_requires_missing_results_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            probe_dir = root / "apparatus-missing-result-schema"
+            probe_dir.mkdir()
+            fixture = {
+                "expected_resolution": "VERIFIED",
+                "exit_code": 0,
+                "document": {
+                    "classification": "RESOLUTION",
+                    "rule_version": "IERL-1",
+                    "results": [{"resolution": "REJECTED"}],
+                },
+            }
+            (probe_dir / "input.json").write_text(
+                json.dumps(fixture) + "\n", encoding="utf-8"
+            )
+            probe = {
+                "probe": "missing_result_schema_detection",
+                "probe_dir": "apparatus-missing-result-schema",
+                "actual": True,
+            }
+            self.assertIn(
+                "missing_result_schema_detection:raw_fixture_shape",
                 probe_raw_errors(root, probe),
             )
 
