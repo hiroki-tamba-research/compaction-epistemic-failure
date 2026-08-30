@@ -306,7 +306,11 @@ def run_corrupt_journal_probe(python: Path, run_root: Path, events: Path) -> dic
         document = json.loads(stdout)
     except json.JSONDecodeError:
         document = {}
-    passed = exit_code == 70 and document.get("classification") == "HARNESS_DEFECT"
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and not stderr
+    )
     probe = {
         "probe": "corrupt_journal_classification",
         "expected_exit": 70,
@@ -365,7 +369,11 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
         document = json.loads(stdout)
     except json.JSONDecodeError:
         document = {}
-    passed = exit_code == 70 and document.get("classification") == "HARNESS_DEFECT"
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and not stderr
+    )
     probe = {
         "probe": "corrupt_policy_classification",
         "expected_exit": 70,
