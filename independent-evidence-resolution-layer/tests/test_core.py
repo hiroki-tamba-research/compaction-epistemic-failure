@@ -19,7 +19,9 @@ from audit_run import (  # noqa: E402
     EXPECTED,
     EXPECTED_PROBES,
     apparatus_probe_errors,
+    apparatus_probe_semantics_ok,
     journal_identity_errors,
+    load_journal_record,
     repetition_matrix_errors,
 )
 from run_conformance import journal_envelope, load_stored_case_evidence  # noqa: E402
@@ -151,6 +153,16 @@ class JournalTests(unittest.TestCase):
                 JsonlJournal(path).load()
             self.assertEqual(caught.exception.code, "JOURNAL_SCHEMA")
 
+    def test_boolean_sequence_is_apparatus_defect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "events.jsonl"
+            unsigned = {"sequence": True, "previous_hash": "0" * 64, "payload": {}}
+            envelope = {**unsigned, "entry_hash": sha256_bytes(canonical_json(unsigned))}
+            path.write_bytes(canonical_json(envelope) + b"\n")
+            with self.assertRaises(JournalError) as caught:
+                JsonlJournal(path).load()
+            self.assertEqual(caught.exception.code, "JOURNAL_SCHEMA")
+
 
 class CliSchemaTests(unittest.TestCase):
     def test_non_object_policy_emits_structured_harness_defect(self) -> None:
@@ -246,6 +258,30 @@ class AuditorRegressionTests(unittest.TestCase):
         errors = apparatus_probe_errors(probes)
         self.assertTrue(any(error.endswith(":probe_count:0") for error in errors))
         self.assertTrue(any(error.endswith(":probe_count:2") for error in errors))
+
+    def test_false_probe_pass_flag_is_independently_rejected(self) -> None:
+        probe = {
+            "probe": "nonobject_policy_classification",
+            "expected_exit": 70,
+            "actual_exit": 0,
+            "expected_classification": "HARNESS_DEFECT",
+            "actual_classification": "RESOLUTION",
+            "expected_error_code": "EVIDENCE_SCHEMA",
+            "actual_error_code": None,
+            "stderr": "traceback",
+            "pass": True,
+        }
+        self.assertFalse(apparatus_probe_semantics_ok(probe["probe"], probe))
+
+    def test_auditor_recomputes_journal_entry_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "journal.jsonl"
+            payload = {"event_type": "evidence_record", "record": {}}
+            envelope = journal_envelope(payload)
+            envelope["entry_hash"] = "f" * 64
+            path.write_text(json.dumps(envelope) + "\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_journal_record(path)
 
     def test_controller_captures_nonobject_case_journal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
