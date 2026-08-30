@@ -30,6 +30,16 @@ EXPECTED = {
     "path_escape": "REJECTED",
 }
 VALID_REPETITIONS = frozenset({1, 2, 3})
+EXPECTED_PROBES = frozenset({
+    "nonzero_exit_propagation",
+    "expected_mismatch_detection",
+    "missing_result_schema_detection",
+    "corrupt_journal_classification",
+    "journal_hash_tamper_classification",
+    "corrupt_policy_classification",
+    "nonobject_policy_classification",
+    "nonobject_journal_payload_classification",
+})
 
 
 def sha256_file(path: Path) -> str:
@@ -108,6 +118,24 @@ def journal_identity_errors(
     return errors
 
 
+def apparatus_probe_errors(probes: list[dict[str, Any]]) -> list[str]:
+    counts: Counter[str] = Counter()
+    errors: list[str] = []
+    for index, probe in enumerate(probes, start=1):
+        name = probe.get("probe")
+        if not isinstance(name, str) or name not in EXPECTED_PROBES:
+            errors.append(f"probe-{index}:unexpected_probe")
+            continue
+        counts[name] += 1
+        if probe.get("pass") is not True:
+            errors.append(f"{name}:nonpass")
+    for name in sorted(EXPECTED_PROBES):
+        count = counts[name]
+        if count != 1:
+            errors.append(f"{name}:probe_count:{count}")
+    return errors
+
+
 def audit(run_root: Path) -> dict[str, Any]:
     errors: list[str] = []
     try:
@@ -118,6 +146,7 @@ def audit(run_root: Path) -> dict[str, Any]:
     cases = [event for event in events if event.get("event_type") == "case_completed"]
     probes = [event for event in events if event.get("event_type") == "apparatus_probe"]
     errors.extend(repetition_matrix_errors(cases))
+    errors.extend(apparatus_probe_errors(probes))
     distribution: Counter[str] = Counter()
     for case in cases:
         case_id = case.get("case_id")
@@ -165,8 +194,8 @@ def audit(run_root: Path) -> dict[str, Any]:
 
     if len(cases) != 57:
         errors.append(f"case_count:{len(cases)}")
-    if len(probes) != 8 or any(probe.get("pass") is not True for probe in probes):
-        errors.append("apparatus_probes")
+    if len(probes) != len(EXPECTED_PROBES):
+        errors.append(f"apparatus_probe_count:{len(probes)}")
     if summary.get("codex_target_runs") != 0:
         errors.append("codex_target_run_detected")
     if summary.get("model_output_used_as_evidence") is not False:
@@ -217,3 +246,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
