@@ -1,8 +1,8 @@
 {
-  "accepted_evidence_manifest_sha256": "482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38",
-  "accepted_run": "run-008-second-review-hardening",
+  "accepted_evidence_manifest_sha256": "2cbac59be4d11173bb917039dc4a771c7a0491ef64c0cfde145531758ef6dec8",
+  "accepted_run": "run-009-third-review-hardening",
   "codex_target_runs": 0,
-  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SECOND_REVIEW_HARDENED",
+  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_THIRD_REVIEW_HARDENED",
   "external_publication": true,
   "independent_auditor": "PASS",
   "martin_logic_used": false,
@@ -13,8 +13,8 @@
     "state": "HARNESS_DEFECT"
   },
   "superseded_validation": {
-    "reason": "two adversarial review rounds found six gaps not covered by earlier checks",
-    "run_id": "run-007-postmerge-hardening",
+    "reason": "three adversarial review rounds found nine gaps not covered by earlier checks",
+    "run_id": "run-008-second-review-hardening",
     "state": "HISTORICAL_PASS_NOT_CURRENT_PROOF"
   },
   "upstream_codex_integration": "NOT_IMPLEMENTED"
