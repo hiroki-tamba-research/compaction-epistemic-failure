@@ -4,12 +4,12 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-008-second-review-hardening`. It supersedes runs 006 and 007 for the current
-source but does not erase their historical results.
+`run-009-third-review-hardening`. It supersedes runs 006 through 008 for the
+current source but does not erase their historical results.
 
 Accepted-run result:
 
-- unit tests: 19/19 passed;
+- unit tests: 22/22 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
@@ -61,24 +61,33 @@ Earlier green summaries were not treated as final evidence.
   controller's caught error path;
 - run 008 removes scalar coercion, requires every named probe exactly once, and
   converts stored-evidence shape failures into case-level non-passing results.
-  It passes 19 unit tests, the full conformance matrix, and the revised auditor.
+  It passes 19 unit tests, the full conformance matrix, and the revised auditor;
+- a third adversarial review found three more gaps: Boolean journal sequences
+  could equal integer sequence values in Python, the auditor parsed journal
+  payloads without independently verifying the envelope hash, and apparatus
+  probe events could report `pass: true` without an independent semantic
+  recalculation;
+- run 009 requires exact integer journal sequences, validates the journal
+  envelope and canonical SHA-256 independently, and recomputes all eight probe
+  verdicts from their observed and expected fields. It passes 22 unit tests,
+  the full conformance matrix, and the revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Runs 006 and 007 remain valid
-records of what their earlier matrices observed, but neither is used as evidence
-that later review findings were absent.
+an apparatus defect, not a successful validation. Runs 006 through 008 remain
+valid records of what their earlier matrices observed, but none is used as
+evidence that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-008-second-review-hardening/events.jsonl`
-- `evidence/runs/run-008-second-review-hardening/summary.json`
-- `evidence/runs/run-008-second-review-hardening/SHA256SUMS.txt`
+- `evidence/runs/run-009-third-review-hardening/events.jsonl`
+- `evidence/runs/run-009-third-review-hardening/summary.json`
+- `evidence/runs/run-009-third-review-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38`
+`2cbac59be4d11173bb917039dc4a771c7a0491ef64c0cfde145531758ef6dec8`
 
 ## Reproduction commands
 
@@ -93,6 +102,11 @@ resolver or controller case definitions. It now requires each exact
 `(case_id, repetition)` coordinate once and independently reads the journal's
 two identity fields, binding them to raw producer PID and nonce evidence.
 It also requires all eight named apparatus probes exactly once.
+For each probe, the auditor recomputes the verdict from the recorded expected
+and actual values instead of trusting the controller's `pass` field. It also
+validates the journal envelope, chain root, and canonical entry hash before
+using its payload. CI uploads the complete generated evidence directory for each
+OS and Python matrix job as a 30-day workflow artifact.
 
 ## Boundary
 
