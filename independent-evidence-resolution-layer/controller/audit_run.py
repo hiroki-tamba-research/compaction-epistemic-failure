@@ -40,6 +40,33 @@ EXPECTED_PROBES = frozenset({
     "nonobject_policy_classification",
     "nonobject_journal_payload_classification",
 })
+EVIDENCE_RECORD_FIELDS = frozenset({
+    "record_id",
+    "run_id",
+    "generation_id",
+    "subject",
+    "predicate",
+    "value_hash",
+    "producer_identity",
+    "bound_producer_identity",
+    "producer_exit_status",
+    "source_kind",
+    "event_count",
+    "event_sequence",
+    "rule_version",
+    "artifacts",
+})
+EVIDENCE_STRING_FIELDS = frozenset({
+    "record_id",
+    "run_id",
+    "generation_id",
+    "subject",
+    "predicate",
+    "producer_identity",
+    "bound_producer_identity",
+    "source_kind",
+    "rule_version",
+})
 
 
 def sha256_file(path: Path) -> str:
@@ -65,6 +92,47 @@ def load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"expected JSON object: {path}:{line_number}")
         values.append(value)
     return values
+
+
+def is_sha256_hex(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdefABCDEF" for character in value)
+    )
+
+
+def validate_evidence_record_schema(record: dict[str, Any]) -> None:
+    missing = sorted(EVIDENCE_RECORD_FIELDS.difference(record))
+    if missing:
+        raise ValueError(f"missing evidence fields: {','.join(missing)}")
+    for field_name in EVIDENCE_STRING_FIELDS:
+        if not isinstance(record[field_name], str):
+            raise ValueError(f"{field_name} must be a string")
+    if not is_sha256_hex(record["value_hash"]):
+        raise ValueError("value_hash must be a SHA-256 hex digest")
+    exit_status = record["producer_exit_status"]
+    if exit_status is not None and type(exit_status) is not int:
+        raise ValueError("producer_exit_status must be an integer or null")
+    if type(record["event_count"]) is not int:
+        raise ValueError("event_count must be an integer")
+    event_sequence = record["event_sequence"]
+    if not isinstance(event_sequence, list) or any(
+        type(item) is not int for item in event_sequence
+    ):
+        raise ValueError("event_sequence must be an array of integers")
+    artifacts = record["artifacts"]
+    if not isinstance(artifacts, list):
+        raise ValueError("artifacts must be an array")
+    for index, artifact in enumerate(artifacts):
+        if not isinstance(artifact, dict):
+            raise ValueError(f"artifact-{index} must be a JSON object")
+        if "relative_path" not in artifact or "sha256" not in artifact:
+            raise ValueError(f"artifact-{index} is missing required fields")
+        if not isinstance(artifact["relative_path"], str):
+            raise ValueError(f"artifact-{index} relative_path must be a string")
+        if not is_sha256_hex(artifact["sha256"]):
+            raise ValueError(f"artifact-{index} sha256 must be a SHA-256 hex digest")
 
 
 def load_journal_record(path: Path) -> dict[str, Any]:
@@ -105,6 +173,7 @@ def load_journal_record(path: Path) -> dict[str, Any]:
     record = payload.get("record")
     if not isinstance(record, dict):
         raise ValueError(f"expected evidence record: {path}")
+    validate_evidence_record_schema(record)
     return record
 
 
