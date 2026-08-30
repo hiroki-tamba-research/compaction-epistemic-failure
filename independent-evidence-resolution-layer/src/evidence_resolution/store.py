@@ -23,6 +23,14 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 class JsonlJournal:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -44,6 +52,14 @@ class JsonlJournal:
             required = {"sequence", "previous_hash", "payload", "entry_hash"}
             if not isinstance(envelope, dict) or not required.issubset(envelope):
                 raise JournalError("JOURNAL_SCHEMA", "invalid envelope")
+            if not isinstance(envelope["payload"], dict):
+                raise JournalError("JOURNAL_SCHEMA", "payload must be a JSON object")
+            if type(envelope["sequence"]) is not int:
+                raise JournalError("JOURNAL_SCHEMA", "sequence must be an integer")
+            if not _is_sha256(envelope["previous_hash"]):
+                raise JournalError("JOURNAL_SCHEMA", "previous_hash must be a lowercase SHA-256")
+            if not _is_sha256(envelope["entry_hash"]):
+                raise JournalError("JOURNAL_SCHEMA", "entry_hash must be a lowercase SHA-256")
             if envelope["sequence"] != expected_sequence:
                 raise JournalError("JOURNAL_SEQUENCE", "non-contiguous sequence")
             if envelope["previous_hash"] != previous:
@@ -61,6 +77,8 @@ class JsonlJournal:
         return entries
 
     def append(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise JournalError("JOURNAL_SCHEMA", "payload must be a JSON object")
         entries = self.load()
         previous = entries[-1]["entry_hash"] if entries else "0" * 64
         unsigned = {
@@ -87,4 +105,3 @@ class JsonlJournal:
         if not read_back or read_back[-1]["entry_hash"] != envelope["entry_hash"]:
             raise JournalError("JOURNAL_READBACK", "append read-back failed")
         return envelope
-

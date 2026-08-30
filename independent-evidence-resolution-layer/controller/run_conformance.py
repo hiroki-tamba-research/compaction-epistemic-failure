@@ -54,6 +54,32 @@ def write_journal(path: Path, record: dict[str, Any]) -> None:
     path.write_text(canonical_json(journal_envelope(payload)) + "\n", encoding="utf-8")
 
 
+def read_journal_record(path: Path) -> dict[str, Any]:
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(envelope, dict):
+        raise ValueError("journal envelope is not an object")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("journal payload is not an object")
+    record = payload.get("record")
+    if not isinstance(record, dict):
+        raise ValueError("journal record is not an object")
+    return record
+
+
+def load_stored_case_evidence(
+    case_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    try:
+        producer = json.loads((case_dir / "producer.stdout.json").read_text(encoding="utf-8"))
+        if not isinstance(producer, dict):
+            raise ValueError("producer output is not an object")
+        record = read_journal_record(case_dir / "journal.jsonl")
+        return producer, record, None
+    except (OSError, ValueError, TypeError) as exc:
+        return {}, {}, f"stored evidence: {exc}"
+
+
 def write_policy(path: Path, record_id: str | None, rule: dict[str, Any] | None = None) -> None:
     rules = {}
     if record_id is not None:
@@ -164,6 +190,10 @@ def launch_producer(
     stdout, stderr = child.communicate(timeout=30)
     (case_dir / "producer.stdout.json").write_bytes(stdout.encode("utf-8"))
     (case_dir / "producer.stderr.txt").write_bytes(stderr.encode("utf-8"))
+    (case_dir / "producer.exit.json").write_text(
+        canonical_json({"child_pid": child.pid, "exit_code": int(child.returncode)}) + "\n",
+        encoding="utf-8",
+    )
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError as exc:
@@ -223,21 +253,47 @@ def compare_resolution(expected: str, document: dict[str, Any], exit_code: int) 
     return passed, actual
 
 
-def run_apparatus_probes(python: Path, events: Path) -> list[dict[str, Any]]:
+def retain_probe_process(
+    case_dir: Path, pid: int, exit_code: int, stdout: str, stderr: str
+) -> None:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (case_dir / "resolver.stdout.json").write_text(
+        stdout + ("\n" if stdout else ""), encoding="utf-8"
+    )
+    (case_dir / "resolver.stderr.txt").write_text(
+        stderr + ("\n" if stderr else ""), encoding="utf-8"
+    )
+    (case_dir / "resolver.exit.json").write_text(
+        canonical_json({"child_pid": pid, "exit_code": exit_code}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def run_apparatus_probes(
+    python: Path, run_root: Path, events: Path
+) -> list[dict[str, Any]]:
     probes = []
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(SOURCE_ROOT)
     child = subprocess.Popen(
         [str(python), "-m", "evidence_resolution.cli", "self-exit", "--code", "37"],
         env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
-    child.wait(timeout=30)
+    stdout, stderr = child.communicate(timeout=30)
+    stdout = stdout.strip()
+    stderr = stderr.strip()
+    exit_dir = run_root / "apparatus-nonzero-exit"
+    retain_probe_process(exit_dir, child.pid, int(child.returncode), stdout, stderr)
     exit_probe = {
         "probe": "nonzero_exit_propagation",
         "expected": 37,
         "actual": child.returncode,
         "pass": child.returncode == 37,
         "child_pid": child.pid,
+        "probe_dir": exit_dir.name,
     }
     probes.append(exit_probe)
     append_event(events, {"event_type": "apparatus_probe", **exit_probe})
@@ -248,22 +304,44 @@ def run_apparatus_probes(python: Path, events: Path) -> list[dict[str, Any]]:
         "results": [{"resolution": "REJECTED"}],
     }
     mismatch_detected = not compare_resolution("VERIFIED", mismatch_document, 0)[0]
+    mismatch_dir = run_root / "apparatus-expected-mismatch"
+    mismatch_dir.mkdir(parents=True)
+    (mismatch_dir / "input.json").write_text(
+        canonical_json({
+            "expected_resolution": "VERIFIED",
+            "document": mismatch_document,
+            "exit_code": 0,
+        }) + "\n",
+        encoding="utf-8",
+    )
     compare_probe = {
         "probe": "expected_mismatch_detection",
         "expected": True,
         "actual": mismatch_detected,
         "pass": mismatch_detected is True,
+        "probe_dir": mismatch_dir.name,
     }
     probes.append(compare_probe)
     append_event(events, {"event_type": "apparatus_probe", **compare_probe})
 
     malformed_document = {"classification": "RESOLUTION", "rule_version": RULE_VERSION}
     malformed_detected = not compare_resolution("VERIFIED", malformed_document, 0)[0]
+    malformed_dir = run_root / "apparatus-missing-result-schema"
+    malformed_dir.mkdir(parents=True)
+    (malformed_dir / "input.json").write_text(
+        canonical_json({
+            "expected_resolution": "VERIFIED",
+            "document": malformed_document,
+            "exit_code": 0,
+        }) + "\n",
+        encoding="utf-8",
+    )
     schema_probe = {
         "probe": "missing_result_schema_detection",
         "expected": True,
         "actual": malformed_detected,
         "pass": malformed_detected is True,
+        "probe_dir": malformed_dir.name,
     }
     probes.append(schema_probe)
     append_event(events, {"event_type": "apparatus_probe", **schema_probe})
@@ -276,11 +354,16 @@ def run_corrupt_journal_probe(python: Path, run_root: Path, events: Path) -> dic
     (case_dir / "journal.jsonl").write_text("{not-json}\n", encoding="utf-8")
     write_policy(case_dir / "policy.json", None)
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
         document = {}
-    passed = exit_code == 70 and document.get("classification") == "HARNESS_DEFECT"
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and not stderr
+    )
     probe = {
         "probe": "corrupt_journal_classification",
         "expected_exit": 70,
@@ -290,6 +373,7 @@ def run_corrupt_journal_probe(python: Path, run_root: Path, events: Path) -> dic
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -304,6 +388,7 @@ def run_hash_tamper_probe(python: Path, run_root: Path, events: Path) -> dict[st
     (case_dir / "journal.jsonl").write_text(canonical_json(envelope) + "\n", encoding="utf-8")
     write_policy(case_dir / "policy.json", None)
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -324,6 +409,7 @@ def run_hash_tamper_probe(python: Path, run_root: Path, events: Path) -> dict[st
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -335,11 +421,16 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
     write_journal(case_dir / "journal.jsonl", base_record("policy", "0" * 64))
     (case_dir / "policy.json").write_text("{broken-policy}\n", encoding="utf-8")
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
         document = {}
-    passed = exit_code == 70 and document.get("classification") == "HARNESS_DEFECT"
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and not stderr
+    )
     probe = {
         "probe": "corrupt_policy_classification",
         "expected_exit": 70,
@@ -349,6 +440,78 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
+    }
+    append_event(events, {"event_type": "apparatus_probe", **probe})
+    return probe
+
+
+def run_nonobject_policy_probe(python: Path, run_root: Path, events: Path) -> dict[str, Any]:
+    case_dir = run_root / "apparatus-nonobject-policy"
+    (case_dir / "artifacts").mkdir(parents=True)
+    write_journal(case_dir / "journal.jsonl", base_record("policy-shape", "0" * 64))
+    (case_dir / "policy.json").write_text("[]\n", encoding="utf-8")
+    pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
+    try:
+        document = json.loads(stdout)
+    except json.JSONDecodeError:
+        document = {}
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and document.get("error_code") == "EVIDENCE_SCHEMA"
+        and not stderr
+    )
+    probe = {
+        "probe": "nonobject_policy_classification",
+        "expected_exit": 70,
+        "actual_exit": exit_code,
+        "expected_classification": "HARNESS_DEFECT",
+        "actual_classification": document.get("classification"),
+        "expected_error_code": "EVIDENCE_SCHEMA",
+        "actual_error_code": document.get("error_code"),
+        "pass": passed,
+        "child_pid": pid,
+        "stderr": stderr,
+        "probe_dir": case_dir.name,
+    }
+    append_event(events, {"event_type": "apparatus_probe", **probe})
+    return probe
+
+
+def run_nonobject_journal_payload_probe(
+    python: Path, run_root: Path, events: Path
+) -> dict[str, Any]:
+    case_dir = run_root / "apparatus-nonobject-journal-payload"
+    (case_dir / "artifacts").mkdir(parents=True)
+    envelope = journal_envelope([])  # type: ignore[arg-type]
+    (case_dir / "journal.jsonl").write_text(canonical_json(envelope) + "\n", encoding="utf-8")
+    write_policy(case_dir / "policy.json", None)
+    pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
+    try:
+        document = json.loads(stdout)
+    except json.JSONDecodeError:
+        document = {}
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and document.get("error_code") == "JOURNAL_SCHEMA"
+        and not stderr
+    )
+    probe = {
+        "probe": "nonobject_journal_payload_classification",
+        "expected_exit": 70,
+        "actual_exit": exit_code,
+        "expected_classification": "HARNESS_DEFECT",
+        "actual_classification": document.get("classification"),
+        "expected_error_code": "JOURNAL_SCHEMA",
+        "actual_error_code": document.get("error_code"),
+        "pass": passed,
+        "child_pid": pid,
+        "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -384,10 +547,12 @@ def main() -> int:
         "repetitions": REPETITIONS,
     })
 
-    probes = run_apparatus_probes(args.python, events)
+    probes = run_apparatus_probes(args.python, run_root, events)
     probes.append(run_corrupt_journal_probe(args.python, run_root, events))
     probes.append(run_hash_tamper_probe(args.python, run_root, events))
     probes.append(run_corrupt_policy_probe(args.python, run_root, events))
+    probes.append(run_nonobject_policy_probe(args.python, run_root, events))
+    probes.append(run_nonobject_journal_payload_probe(args.python, run_root, events))
     case_results = []
     for definition in case_definitions():
         for repetition in range(1, REPETITIONS + 1):
@@ -398,20 +563,31 @@ def main() -> int:
             )
             (case_dir / "resolver.stdout.json").write_text(stdout + ("\n" if stdout else ""), encoding="utf-8")
             (case_dir / "resolver.stderr.txt").write_text(stderr + ("\n" if stderr else ""), encoding="utf-8")
+            (case_dir / "resolver.exit.json").write_text(
+                canonical_json({"child_pid": child_pid, "exit_code": exit_code}) + "\n",
+                encoding="utf-8",
+            )
             parse_error = None
             try:
                 document = json.loads(stdout)
             except json.JSONDecodeError as exc:
                 document = {}
                 parse_error = str(exc)
-            try:
-                stored_producer_document = json.loads(
-                    (case_dir / "producer.stdout.json").read_text(encoding="utf-8")
-                )
-            except (OSError, json.JSONDecodeError) as exc:
-                stored_producer_document = {}
-                parse_error = parse_error or f"producer evidence: {exc}"
+            (
+                stored_producer_document,
+                stored_journal_record,
+                stored_evidence_error,
+            ) = load_stored_case_evidence(case_dir)
+            parse_error = parse_error or stored_evidence_error
             passed, actual = compare_resolution(definition["expected"], document, exit_code)
+            raw_identity = producer["producer_identity"]
+            expected_record_identity = (
+                "unbound-producer" if definition["id"] == "producer_mismatch" else raw_identity
+            )
+            journal_identity_binding_ok = (
+                stored_journal_record.get("producer_identity") == expected_record_identity
+                and stored_journal_record.get("bound_producer_identity") == raw_identity
+            )
             raw_binding_ok = (
                 stored_producer_document.get("pid") == producer["producer_pid"]
                 and stored_producer_document.get("nonce")
@@ -419,6 +595,7 @@ def main() -> int:
                 and document.get("process_id") == child_pid
                 and sha256_file(case_dir / "producer.stdout.json")
                 == producer["producer_stdout_sha256"]
+                and journal_identity_binding_ok
             )
             passed = passed and parse_error is None and raw_binding_ok
             result_items = document.get("results") or []
@@ -439,6 +616,7 @@ def main() -> int:
                 "producer_identity": producer["producer_identity"],
                 "producer_stdout_sha256": producer["producer_stdout_sha256"],
                 "raw_process_binding_ok": raw_binding_ok,
+                "journal_identity_binding_ok": journal_identity_binding_ok,
                 "stdout_sha256": sha256_bytes(stdout.encode("utf-8")),
                 "normalized_result_sha256": normalized_hash,
                 "journal_sha256": sha256_file(case_dir / "journal.jsonl"),

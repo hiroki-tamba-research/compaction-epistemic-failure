@@ -19,6 +19,8 @@ def resolve_command(args: argparse.Namespace) -> int:
     try:
         policy_bytes = Path(args.policy).read_bytes()
         policy = json.loads(policy_bytes)
+        if not isinstance(policy, dict):
+            raise ValueError("verification policy must be a JSON object")
         if policy.get("policy_version") != "IERL-POLICY-1" or not isinstance(policy.get("rules"), dict):
             raise ValueError("invalid verification policy")
         entries = JsonlJournal(Path(args.journal)).load()

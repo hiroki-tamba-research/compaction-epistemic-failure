@@ -1,0 +1,262 @@
+# Post-merge review and hardening
+
+## Timeline
+
+- PR #1 merged at `2026-08-30T03:04:10Z` as
+  `321d686bc6010750c38cc70d953fde38da1def9d`.
+- The automated Codex review was submitted at `2026-08-30T03:07:41Z`.
+- Three findings were recorded immediately after merge: one P1 and two P2.
+
+The original twelve checks and merge state are not treated as proof that the
+implementation was correct. They establish only that the original matrix was
+green before the later review exposed coverage gaps.
+
+## Findings and repairs
+
+### P1: journal producer identity was not independently bound
+
+The old auditor compared raw producer PID with the controller event but did not
+parse the evidence journal and bind both identity fields to the raw producer PID
+and nonce. Two equally wrong journal fields could therefore agree with each
+other and pass.
+
+The revised auditor reads the journal record independently. For ordinary cases,
+both identity fields must equal `pid:<raw-pid>;nonce:<raw-nonce>`. The deliberate
+`producer_mismatch` negative fixture is separately constrained: only its
+unbound field may differ, while its bound identity must still match raw output.
+The controller now performs the same binding check, while the auditor remains an
+independent second calculation.
+
+Regression test:
+`AuditorRegressionTests.test_both_wrong_journal_identities_are_detected`.
+
+### P2: syntactically valid non-object JSON escaped structured failure
+
+A policy containing `[]` reached `.get` and could terminate with an unstructured
+traceback and exit status 1. Journal payload containers had the same class of
+shape risk.
+
+The CLI, model constructors, and journal loader now require JSON objects at each
+object boundary. A non-object policy produces `HARNESS_DEFECT` and exit status
+70. A non-object journal payload produces `HARNESS_DEFECT`, error code
+`JOURNAL_SCHEMA`, and exit status 70. Neither emits a traceback.
+
+Regression tests and probes:
+
+- `CliSchemaTests.test_non_object_policy_emits_structured_harness_defect`;
+- `JournalTests.test_non_object_payload_is_apparatus_defect`;
+- `nonobject_policy_classification` apparatus probe;
+- `nonobject_journal_payload_classification` apparatus probe.
+
+### P2: repetition counting did not require distinct coordinates
+
+The old auditor counted only by `case_id`. Three copies of repetition 1 could
+satisfy the count while repetitions 2 and 3 were absent.
+
+The revised auditor requires every exact `(case_id, repetition)` coordinate for
+repetitions 1, 2, and 3 exactly once. Invalid, missing, and duplicate coordinates
+are failures before the case directory is read.
+
+Regression test:
+`AuditorRegressionTests.test_duplicate_repetition_ids_are_detected`.
+
+## Second adversarial review
+
+The first hardening commit was not merged immediately. A fresh automated review
+completed at `2026-08-30T03:31:06Z` and reported another P1 plus two P2 findings.
+
+### P1: malformed scalar types were coerced into valid evidence
+
+Numeric identities, Boolean exit status, fractional event counts, and string
+sequence values could be normalized by `str()` and `int()` and reach
+`VERIFIED`. Model construction now performs exact JSON type checks. Boolean is
+not accepted as an integer, hashes must be 64 hexadecimal characters, sequence
+members must be integers, and policy arrays contain only their declared types.
+
+Regression test:
+`CliSchemaTests.test_malformed_field_types_emit_structured_harness_defect`.
+
+### P2: required apparatus probes were count-only
+
+Eight arbitrary passing probe events could satisfy the auditor. The auditor now
+owns an independent set of eight expected probe names and requires every name
+exactly once.
+
+Regression test:
+`AuditorRegressionTests.test_duplicate_probes_cannot_replace_required_probes`.
+
+### P2: regular-case journal shape errors escaped controller handling
+
+The controller's journal parser raised an exception type that its caller did not
+catch. Stored case evidence now goes through one fail-closed loader that converts
+object-shape, JSON, type, and I/O failures into a case-level `parse_error` and a
+non-passing controller result.
+
+Regression test:
+`AuditorRegressionTests.test_controller_captures_nonobject_case_journal`.
+
+## Third adversarial review
+
+The second hardening commit was also held open for a fresh automated review.
+That review completed at `2026-08-30T03:43:11Z` and reported another P1, a
+second P1, and one P2 finding.
+
+### P1: Boolean journal sequence was accepted as integer sequence 1
+
+Python equality makes `True == 1`. The journal loader now requires the exact
+integer type before comparing the sequence value. Hash fields are also required
+to be lowercase 64-character SHA-256 strings before chain or entry comparison.
+
+Regression test:
+`JournalTests.test_boolean_sequence_is_apparatus_defect`.
+
+### P1: auditor trusted the journal payload without validating its envelope hash
+
+The independent auditor now requires one complete journal envelope, exact
+sequence 1, the all-zero chain root, a lowercase SHA-256 entry hash, and a match
+against its own canonical JSON SHA-256 calculation before it reads the payload.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_recomputes_journal_entry_hash`.
+
+### P2: auditor trusted the controller's apparatus `pass` field
+
+The auditor now independently recomputes every apparatus verdict from its
+recorded expected and actual exit statuses, classifications, error codes,
+detection flags, and stderr. A forged `pass: true` cannot replace the underlying
+probe evidence.
+
+Regression test:
+`AuditorRegressionTests.test_false_probe_pass_flag_is_independently_rejected`.
+
+## Fourth adversarial review
+
+A fresh review of head `dc4cf569fa85b97b488c744ac7428a65f4446fd1`
+completed at `2026-08-30T04:02:51Z` and reported one additional P1.
+
+### P1: auditor did not validate the complete retained record schema
+
+The auditor validated the journal envelope and producer identity fields, but a
+schema-invalid field such as string `event_count` could still accompany a
+retained `VERIFIED` result after journal and manifest hashes were rebuilt. The
+auditor now owns an independent evidence-record schema and requires all fields,
+exact scalar and array types, SHA-256 digests, and artifact-reference shapes
+before it uses the journal payload.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_rejects_malformed_complete_record_schema`.
+
+## Fifth adversarial review
+
+A fresh review of head `b47a437cb8c5774a9bc853b6f40c9e50e3492ebc`
+completed at `2026-08-30T04:16:26Z` and reported two additional P1 findings.
+
+### P1: auditor did not recompute case verdicts from retained inputs
+
+A schema-valid journal could be changed together with the artifact and all hash
+records while leaving the retained resolver result unchanged. The auditor now
+owns an independent case oracle. It loads and validates the policy, reads the
+artifact bytes, recomputes hashes and semantic checks, applies scope, sequence,
+identity, and exit-status rules, and compares the complete result object with
+the resolver output and static expected result.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_recomputes_case_verdict_from_artifact_policy`.
+
+### P1: apparatus events were not bound to retained probe outputs
+
+The controller's `actual_*` fields could agree with each other while the input
+fixture had been replaced. Every probe now retains a named directory containing
+its input fixture or raw stdout, stderr, exit status, and child PID. The auditor
+independently checks fixture semantics, raw process outcome, and event binding.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_binds_probe_verdict_to_input_fixture`.
+
+## Sixth adversarial review
+
+A fresh review of head `5e0f94e5519bd35795699c4af56f95d2f916b124`
+completed at `2026-08-30T04:31:56Z` and reported two P1 findings and one P2.
+
+### P1: named cases were not bound to their defining fixtures
+
+A case could be rebuilt with another condition producing the same resolution.
+The auditor now owns a fixture contract for all 19 case names, covering the
+record identity, scope, generation, source, rule version, exit status, event
+sequence, artifact state, policy checker, semantic canary, and JSON condition.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_binds_case_name_to_defining_mutation`.
+
+### P1: probe stdout process ID was not bound to the retained child
+
+Resolver probe stdout must now report the same `process_id` as both the raw exit
+record and the controller event.
+
+Regression coverage is included in:
+`AuditorRegressionTests.test_auditor_binds_probe_verdict_to_input_fixture`.
+
+### P2: missing-result probe accepted any verdict mismatch
+
+The two in-process comparison probes now have distinct fixture contracts. The
+expected-mismatch probe must retain one `REJECTED` result, while the
+missing-result probe must retain a result-less resolution document.
+
+Regression test:
+`AuditorRegressionTests.test_missing_result_probe_requires_missing_results_shape`.
+
+## Seventh adversarial review
+
+A fresh review of head `03cc608474505bca5ab8dc4e0b97ada86fdc72cc`
+completed at `2026-08-30T04:46:09Z` and reported three P1 findings and one P2.
+
+### P1: repetitions were not bound to producer nonce coordinates
+
+The auditor now requires the exact `<case>-rep-<repetition>` producer nonce and
+rejects reused retained producer identities across the 57 coordinates.
+
+Regression test:
+`AuditorRegressionTests.test_repetition_nonce_and_identity_are_coordinate_bound`.
+
+### P2: expected-mismatch probe did not pin its expected value and exit
+
+The fixture now requires expected `VERIFIED`, exit 0, a valid resolution
+envelope, and one actual `REJECTED` result.
+
+Regression test:
+`AuditorRegressionTests.test_expected_mismatch_probe_pins_expected_value_and_exit`.
+
+### P1: regular-case process outcomes were not independently retained
+
+Every producer and resolver launch now retains a separate PID/exit record. The
+auditor binds producer stdout hash, artifact hash, PID, exit, and empty stderr,
+and binds resolver PID, exit 0, empty stderr, and controller event fields.
+
+### P1: resolver stdout envelope was only partially checked
+
+The auditor now requires exact `RESOLUTION` classification, `IERL-1`, and one
+result object before comparing the complete result with the independent oracle.
+
+Regression test for both regular-process findings:
+`AuditorRegressionTests.test_regular_resolver_exit_and_envelope_are_required`.
+
+The first revised run, run 013, exposed an auditor fixture bug by rejecting the
+intentional `missing_exit` mutation. It is sealed as `HARNESS_DEFECT`. Run 014
+contains the corrected scope and is the accepted run.
+
+## Revised validation
+
+Accepted run: `run-014-seventh-review-hardening-fixed`.
+
+- unit tests: 30/30;
+- conformance executions: 57/57;
+- apparatus probes: 8/8;
+- revised independent auditor: PASS, zero errors;
+- evidence manifest entries: 545;
+- evidence manifest SHA-256:
+  `50d3b6ae2efb46e418dd188ba6ff5d75e9d18272dad7b1aeb1b068cb81380ba1`;
+- Codex target runs: 0;
+- model output used as evidence: false.
+
+This hardening does not establish correctness outside the tested matrix. It also
+does not turn IERL into a Codex patch or a reproduction of PR #41567.
