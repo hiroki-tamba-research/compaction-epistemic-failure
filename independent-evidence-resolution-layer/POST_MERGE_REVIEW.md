@@ -129,17 +129,34 @@ probe evidence.
 Regression test:
 `AuditorRegressionTests.test_false_probe_pass_flag_is_independently_rejected`.
 
+## Fourth adversarial review
+
+A fresh review of head `dc4cf569fa85b97b488c744ac7428a65f4446fd1`
+completed at `2026-08-30T04:02:51Z` and reported one additional P1.
+
+### P1: auditor did not validate the complete retained record schema
+
+The auditor validated the journal envelope and producer identity fields, but a
+schema-invalid field such as string `event_count` could still accompany a
+retained `VERIFIED` result after journal and manifest hashes were rebuilt. The
+auditor now owns an independent evidence-record schema and requires all fields,
+exact scalar and array types, SHA-256 digests, and artifact-reference shapes
+before it uses the journal payload.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_rejects_malformed_complete_record_schema`.
+
 ## Revised validation
 
-Accepted run: `run-009-third-review-hardening`.
+Accepted run: `run-010-fourth-review-hardening`.
 
-- unit tests: 22/22;
+- unit tests: 23/23;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
 - evidence manifest entries: 411;
 - evidence manifest SHA-256:
-  `2cbac59be4d11173bb917039dc4a771c7a0491ef64c0cfde145531758ef6dec8`;
+  `5f0ec6dafa318ddd5995ff924cc6f6125768228f5d26fa8cd46e8e939dcc8540`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
