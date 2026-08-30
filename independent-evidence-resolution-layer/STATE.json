@@ -1,8 +1,8 @@
 {
-  "accepted_evidence_manifest_sha256": "933a646611b728ca125b0066ce0902aef4a8ae180c6a959782a23bd00908603c",
-  "accepted_run": "run-012-sixth-review-hardening",
+  "accepted_evidence_manifest_sha256": "50d3b6ae2efb46e418dd188ba6ff5d75e9d18272dad7b1aeb1b068cb81380ba1",
+  "accepted_run": "run-014-seventh-review-hardening-fixed",
   "codex_target_runs": 0,
-  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SIXTH_REVIEW_HARDENED",
+  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SEVENTH_REVIEW_HARDENED",
   "external_publication": true,
   "independent_auditor": "PASS",
   "martin_logic_used": false,
@@ -13,8 +13,8 @@
     "state": "HARNESS_DEFECT"
   },
   "superseded_validation": {
-    "reason": "six adversarial review rounds found fifteen gaps not covered by earlier checks",
-    "run_id": "run-011-fifth-review-hardening",
+    "reason": "seven adversarial review rounds found nineteen gaps not covered by earlier checks; run 013 was rejected as an auditor fixture defect",
+    "run_id": "run-012-sixth-review-hardening",
     "state": "HISTORICAL_PASS_NOT_CURRENT_PROOF"
   },
   "upstream_codex_integration": "NOT_IMPLEMENTED"
