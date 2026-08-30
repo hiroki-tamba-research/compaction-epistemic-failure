@@ -146,17 +146,44 @@ before it uses the journal payload.
 Regression test:
 `AuditorRegressionTests.test_auditor_rejects_malformed_complete_record_schema`.
 
+## Fifth adversarial review
+
+A fresh review of head `b47a437cb8c5774a9bc853b6f40c9e50e3492ebc`
+completed at `2026-08-30T04:16:26Z` and reported two additional P1 findings.
+
+### P1: auditor did not recompute case verdicts from retained inputs
+
+A schema-valid journal could be changed together with the artifact and all hash
+records while leaving the retained resolver result unchanged. The auditor now
+owns an independent case oracle. It loads and validates the policy, reads the
+artifact bytes, recomputes hashes and semantic checks, applies scope, sequence,
+identity, and exit-status rules, and compares the complete result object with
+the resolver output and static expected result.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_recomputes_case_verdict_from_artifact_policy`.
+
+### P1: apparatus events were not bound to retained probe outputs
+
+The controller's `actual_*` fields could agree with each other while the input
+fixture had been replaced. Every probe now retains a named directory containing
+its input fixture or raw stdout, stderr, exit status, and child PID. The auditor
+independently checks fixture semantics, raw process outcome, and event binding.
+
+Regression test:
+`AuditorRegressionTests.test_auditor_binds_probe_verdict_to_input_fixture`.
+
 ## Revised validation
 
-Accepted run: `run-010-fourth-review-hardening`.
+Accepted run: `run-011-fifth-review-hardening`.
 
-- unit tests: 23/23;
+- unit tests: 25/25;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
-- evidence manifest entries: 411;
+- evidence manifest entries: 431;
 - evidence manifest SHA-256:
-  `5f0ec6dafa318ddd5995ff924cc6f6125768228f5d26fa8cd46e8e939dcc8540`;
+  `b74622811bf45cc8b777bfc8e67637db5436292bb34a0a62650381b24318374b`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
