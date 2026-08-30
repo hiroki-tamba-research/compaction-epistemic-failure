@@ -11,6 +11,8 @@ class ArtifactRef:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ArtifactRef":
+        if not isinstance(value, dict):
+            raise ValueError("artifact reference must be a JSON object")
         return cls(
             relative_path=str(value["relative_path"]),
             sha256=str(value["sha256"]).lower(),
@@ -26,6 +28,8 @@ class VerificationRule:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "VerificationRule":
+        if not isinstance(value, dict):
+            raise ValueError("verification rule must be a JSON object")
         return cls(
             record_id=str(value["record_id"]),
             checker=str(value["checker"]),
@@ -55,6 +59,8 @@ class EvidenceRecord:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "EvidenceRecord":
+        if not isinstance(value, dict):
+            raise ValueError("evidence record must be a JSON object")
         required = {
             "record_id",
             "run_id",
