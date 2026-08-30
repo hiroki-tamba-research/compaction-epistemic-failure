@@ -54,6 +54,19 @@ def write_journal(path: Path, record: dict[str, Any]) -> None:
     path.write_text(canonical_json(journal_envelope(payload)) + "\n", encoding="utf-8")
 
 
+def read_journal_record(path: Path) -> dict[str, Any]:
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(envelope, dict):
+        raise RuntimeError("journal envelope is not an object")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise RuntimeError("journal payload is not an object")
+    record = payload.get("record")
+    if not isinstance(record, dict):
+        raise RuntimeError("journal record is not an object")
+    return record
+
+
 def write_policy(path: Path, record_id: str | None, rule: dict[str, Any] | None = None) -> None:
     rules = {}
     if record_id is not None:
@@ -354,6 +367,73 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
     return probe
 
 
+def run_nonobject_policy_probe(python: Path, run_root: Path, events: Path) -> dict[str, Any]:
+    case_dir = run_root / "apparatus-nonobject-policy"
+    (case_dir / "artifacts").mkdir(parents=True)
+    write_journal(case_dir / "journal.jsonl", base_record("policy-shape", "0" * 64))
+    (case_dir / "policy.json").write_text("[]\n", encoding="utf-8")
+    pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    try:
+        document = json.loads(stdout)
+    except json.JSONDecodeError:
+        document = {}
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and document.get("error_code") == "EVIDENCE_SCHEMA"
+        and not stderr
+    )
+    probe = {
+        "probe": "nonobject_policy_classification",
+        "expected_exit": 70,
+        "actual_exit": exit_code,
+        "expected_classification": "HARNESS_DEFECT",
+        "actual_classification": document.get("classification"),
+        "expected_error_code": "EVIDENCE_SCHEMA",
+        "actual_error_code": document.get("error_code"),
+        "pass": passed,
+        "child_pid": pid,
+        "stderr": stderr,
+    }
+    append_event(events, {"event_type": "apparatus_probe", **probe})
+    return probe
+
+
+def run_nonobject_journal_payload_probe(
+    python: Path, run_root: Path, events: Path
+) -> dict[str, Any]:
+    case_dir = run_root / "apparatus-nonobject-journal-payload"
+    (case_dir / "artifacts").mkdir(parents=True)
+    envelope = journal_envelope([])  # type: ignore[arg-type]
+    (case_dir / "journal.jsonl").write_text(canonical_json(envelope) + "\n", encoding="utf-8")
+    write_policy(case_dir / "policy.json", None)
+    pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    try:
+        document = json.loads(stdout)
+    except json.JSONDecodeError:
+        document = {}
+    passed = (
+        exit_code == 70
+        and document.get("classification") == "HARNESS_DEFECT"
+        and document.get("error_code") == "JOURNAL_SCHEMA"
+        and not stderr
+    )
+    probe = {
+        "probe": "nonobject_journal_payload_classification",
+        "expected_exit": 70,
+        "actual_exit": exit_code,
+        "expected_classification": "HARNESS_DEFECT",
+        "actual_classification": document.get("classification"),
+        "expected_error_code": "JOURNAL_SCHEMA",
+        "actual_error_code": document.get("error_code"),
+        "pass": passed,
+        "child_pid": pid,
+        "stderr": stderr,
+    }
+    append_event(events, {"event_type": "apparatus_probe", **probe})
+    return probe
+
+
 def build_manifest(run_root: Path) -> Path:
     manifest = run_root / "SHA256SUMS.txt"
     lines = []
@@ -388,6 +468,8 @@ def main() -> int:
     probes.append(run_corrupt_journal_probe(args.python, run_root, events))
     probes.append(run_hash_tamper_probe(args.python, run_root, events))
     probes.append(run_corrupt_policy_probe(args.python, run_root, events))
+    probes.append(run_nonobject_policy_probe(args.python, run_root, events))
+    probes.append(run_nonobject_journal_payload_probe(args.python, run_root, events))
     case_results = []
     for definition in case_definitions():
         for repetition in range(1, REPETITIONS + 1):
@@ -408,10 +490,20 @@ def main() -> int:
                 stored_producer_document = json.loads(
                     (case_dir / "producer.stdout.json").read_text(encoding="utf-8")
                 )
+                stored_journal_record = read_journal_record(case_dir / "journal.jsonl")
             except (OSError, json.JSONDecodeError) as exc:
                 stored_producer_document = {}
+                stored_journal_record = {}
                 parse_error = parse_error or f"producer evidence: {exc}"
             passed, actual = compare_resolution(definition["expected"], document, exit_code)
+            raw_identity = producer["producer_identity"]
+            expected_record_identity = (
+                "unbound-producer" if definition["id"] == "producer_mismatch" else raw_identity
+            )
+            journal_identity_binding_ok = (
+                stored_journal_record.get("producer_identity") == expected_record_identity
+                and stored_journal_record.get("bound_producer_identity") == raw_identity
+            )
             raw_binding_ok = (
                 stored_producer_document.get("pid") == producer["producer_pid"]
                 and stored_producer_document.get("nonce")
@@ -419,6 +511,7 @@ def main() -> int:
                 and document.get("process_id") == child_pid
                 and sha256_file(case_dir / "producer.stdout.json")
                 == producer["producer_stdout_sha256"]
+                and journal_identity_binding_ok
             )
             passed = passed and parse_error is None and raw_binding_ok
             result_items = document.get("results") or []
@@ -439,6 +532,7 @@ def main() -> int:
                 "producer_identity": producer["producer_identity"],
                 "producer_stdout_sha256": producer["producer_stdout_sha256"],
                 "raw_process_binding_ok": raw_binding_ok,
+                "journal_identity_binding_ok": journal_identity_binding_ok,
                 "stdout_sha256": sha256_bytes(stdout.encode("utf-8")),
                 "normalized_result_sha256": normalized_hash,
                 "journal_sha256": sha256_file(case_dir / "journal.jsonl"),
