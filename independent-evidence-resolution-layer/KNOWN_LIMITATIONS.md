@@ -18,17 +18,18 @@ This reference implementation is not a production Codex patch.
 - `hash_only` and `none` can produce only `STORED`, never `VERIFIED`.
 - Crash consistency has not been fault-injected at every `fsync`/`os.replace`
   boundary.
-- Testing was performed on the local Windows host with Python 3.12.13. A second
-  operating system has not been tested.
+- The accepted evidence run was produced on the local Windows host. GitHub CI
+  also runs the same unit, conformance, and audit commands on Windows, Ubuntu,
+  and macOS with Python 3.11 and 3.12; CI does not replace production testing.
 - Confidentiality, encryption, retention, deletion, and quota management are
   outside v1.
 - The evidence view does not grant permissions or prevent arbitrary actions. It
   only prevents unresolved material from being labeled as verified facts by this
   component.
-- No formal proof, third-party review, fuzzing, or production load test has been
-  completed.
+- Automated post-merge review found three defects that the original green CI
+  missed. Those findings are fixed and regression-tested, but there is still no
+  formal proof, independent human review, fuzzing, or production load test.
 
-Passing run 006 means only that no mismatch was observed in the specified 19
-cases, three repetitions each, plus six apparatus probes and the independent
-auditor. It does not establish correctness outside that matrix.
-
+Passing run 007 means only that no mismatch was observed in the specified 19
+cases, three repetitions each, plus eight apparatus probes and the revised
+independent auditor. It does not establish correctness outside that matrix.
