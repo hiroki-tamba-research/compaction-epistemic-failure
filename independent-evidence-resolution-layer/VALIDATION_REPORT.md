@@ -4,12 +4,12 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-011-fifth-review-hardening`. It supersedes runs 006 through 010 for the
+`run-012-sixth-review-hardening`. It supersedes runs 006 through 011 for the
 current source but does not erase their historical results.
 
 Accepted-run result:
 
-- unit tests: 25/25 passed;
+- unit tests: 27/27 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
@@ -86,24 +86,31 @@ Earlier green summaries were not treated as final evidence.
   the retained artifact and compares the complete recomputed result. It also
   retains and validates every probe's fixture, stdout, stderr, exit status, and
   child identity. It passes 25 unit tests, the full conformance matrix, and the
-  revised auditor.
+  revised auditor;
+- a sixth adversarial review showed that distinct case names could be backed by
+  substituted inputs yielding the same resolution, probe stdout PID was not
+  bound to the exit record, and the missing-result probe accepted any mismatch;
+- run 012 binds all 19 case names to their defining record, policy, artifact,
+  and generation conditions; binds resolver probe stdout PID to the retained
+  child PID; and validates comparison-probe fixture shape per probe name. It
+  passes 27 unit tests, the full matrix, and the revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Runs 006 through 010 remain
+an apparatus defect, not a successful validation. Runs 006 through 011 remain
 valid records of what their earlier matrices observed, but none is used as
 evidence that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-011-fifth-review-hardening/events.jsonl`
-- `evidence/runs/run-011-fifth-review-hardening/summary.json`
-- `evidence/runs/run-011-fifth-review-hardening/SHA256SUMS.txt`
+- `evidence/runs/run-012-sixth-review-hardening/events.jsonl`
+- `evidence/runs/run-012-sixth-review-hardening/summary.json`
+- `evidence/runs/run-012-sixth-review-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`b74622811bf45cc8b777bfc8e67637db5436292bb34a0a62650381b24318374b`
+`933a646611b728ca125b0066ce0902aef4a8ae180c6a959782a23bd00908603c`
 
 ## Reproduction commands
 
