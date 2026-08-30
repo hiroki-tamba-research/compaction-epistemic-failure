@@ -44,6 +44,8 @@ class JsonlJournal:
             required = {"sequence", "previous_hash", "payload", "entry_hash"}
             if not isinstance(envelope, dict) or not required.issubset(envelope):
                 raise JournalError("JOURNAL_SCHEMA", "invalid envelope")
+            if not isinstance(envelope["payload"], dict):
+                raise JournalError("JOURNAL_SCHEMA", "payload must be a JSON object")
             if envelope["sequence"] != expected_sequence:
                 raise JournalError("JOURNAL_SEQUENCE", "non-contiguous sequence")
             if envelope["previous_hash"] != previous:
@@ -61,6 +63,8 @@ class JsonlJournal:
         return entries
 
     def append(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise JournalError("JOURNAL_SCHEMA", "payload must be a JSON object")
         entries = self.load()
         previous = entries[-1]["entry_hash"] if entries else "0" * 64
         unsigned = {
@@ -87,4 +91,3 @@ class JsonlJournal:
         if not read_back or read_back[-1]["entry_hash"] != envelope["entry_hash"]:
             raise JournalError("JOURNAL_READBACK", "append read-back failed")
         return envelope
-
