@@ -71,7 +71,35 @@ def load_journal_record(path: Path) -> dict[str, Any]:
     entries = load_jsonl_objects(path)
     if len(entries) != 1:
         raise ValueError(f"expected one journal entry: {path}")
-    payload = entries[0].get("payload")
+    entry = entries[0]
+    required = {"sequence", "previous_hash", "payload", "entry_hash"}
+    if not required.issubset(entry):
+        raise ValueError(f"invalid journal envelope: {path}")
+    if type(entry["sequence"]) is not int or entry["sequence"] != 1:
+        raise ValueError(f"invalid journal sequence: {path}")
+    previous_hash = entry["previous_hash"]
+    entry_hash = entry["entry_hash"]
+    if not isinstance(previous_hash, str) or previous_hash != "0" * 64:
+        raise ValueError(f"invalid journal previous hash: {path}")
+    if (
+        not isinstance(entry_hash, str)
+        or len(entry_hash) != 64
+        or any(character not in "0123456789abcdef" for character in entry_hash)
+    ):
+        raise ValueError(f"invalid journal entry hash: {path}")
+    unsigned = {
+        "sequence": entry["sequence"],
+        "previous_hash": previous_hash,
+        "payload": entry["payload"],
+    }
+    calculated = hashlib.sha256(
+        json.dumps(
+            unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    if entry_hash != calculated:
+        raise ValueError(f"journal entry hash mismatch: {path}")
+    payload = entry.get("payload")
     if not isinstance(payload, dict) or payload.get("event_type") != "evidence_record":
         raise ValueError(f"expected evidence payload: {path}")
     record = payload.get("record")
@@ -128,12 +156,63 @@ def apparatus_probe_errors(probes: list[dict[str, Any]]) -> list[str]:
             continue
         counts[name] += 1
         if probe.get("pass") is not True:
-            errors.append(f"{name}:nonpass")
+            errors.append(f"{name}:controller_nonpass")
+        if not apparatus_probe_semantics_ok(name, probe):
+            errors.append(f"{name}:semantic_mismatch")
     for name in sorted(EXPECTED_PROBES):
         count = counts[name]
         if count != 1:
             errors.append(f"{name}:probe_count:{count}")
     return errors
+
+
+def apparatus_probe_semantics_ok(name: str, probe: dict[str, Any]) -> bool:
+    if name == "nonzero_exit_propagation":
+        return probe.get("expected") == 37 and probe.get("actual") == 37
+    if name in {"expected_mismatch_detection", "missing_result_schema_detection"}:
+        return probe.get("expected") is True and probe.get("actual") is True
+    if name == "corrupt_journal_classification":
+        return (
+            probe.get("expected_exit") == 70
+            and probe.get("actual_exit") == 70
+            and probe.get("expected_classification") == "HARNESS_DEFECT"
+            and probe.get("actual_classification") == "HARNESS_DEFECT"
+            and probe.get("stderr") == ""
+        )
+    if name == "journal_hash_tamper_classification":
+        return (
+            probe.get("expected_exit") == 70
+            and probe.get("actual_exit") == 70
+            and probe.get("expected_classification") == "HARNESS_DEFECT"
+            and probe.get("actual_classification") == "HARNESS_DEFECT"
+            and probe.get("expected_error_code") == "JOURNAL_HASH"
+            and probe.get("actual_error_code") == "JOURNAL_HASH"
+            and probe.get("stderr") == ""
+        )
+    if name == "corrupt_policy_classification":
+        return (
+            probe.get("expected_exit") == 70
+            and probe.get("actual_exit") == 70
+            and probe.get("expected_classification") == "HARNESS_DEFECT"
+            and probe.get("actual_classification") == "HARNESS_DEFECT"
+            and probe.get("stderr") == ""
+        )
+    expected_error_codes = {
+        "nonobject_policy_classification": "EVIDENCE_SCHEMA",
+        "nonobject_journal_payload_classification": "JOURNAL_SCHEMA",
+    }
+    if name in expected_error_codes:
+        error_code = expected_error_codes[name]
+        return (
+            probe.get("expected_exit") == 70
+            and probe.get("actual_exit") == 70
+            and probe.get("expected_classification") == "HARNESS_DEFECT"
+            and probe.get("actual_classification") == "HARNESS_DEFECT"
+            and probe.get("expected_error_code") == error_code
+            and probe.get("actual_error_code") == error_code
+            and probe.get("stderr") == ""
+        )
+    return False
 
 
 def audit(run_root: Path) -> dict[str, Any]:
