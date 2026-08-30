@@ -1,8 +1,8 @@
 {
-  "accepted_evidence_manifest_sha256": "6398785db32b5ddc4da80814d852b30ad8b59d94c1c6b9ba476d71139678ad5d",
-  "accepted_run": "run-007-postmerge-hardening",
+  "accepted_evidence_manifest_sha256": "482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38",
+  "accepted_run": "run-008-second-review-hardening",
   "codex_target_runs": 0,
-  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_POSTMERGE_HARDENED",
+  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SECOND_REVIEW_HARDENED",
   "external_publication": true,
   "independent_auditor": "PASS",
   "martin_logic_used": false,
@@ -13,8 +13,8 @@
     "state": "HARNESS_DEFECT"
   },
   "superseded_validation": {
-    "reason": "post-merge review found three gaps not covered by the then-current checks",
-    "run_id": "20260830T-IERL-V1-006",
+    "reason": "two adversarial review rounds found six gaps not covered by earlier checks",
+    "run_id": "run-007-postmerge-hardening",
     "state": "HISTORICAL_PASS_NOT_CURRENT_PROOF"
   },
   "upstream_codex_integration": "NOT_IMPLEMENTED"
