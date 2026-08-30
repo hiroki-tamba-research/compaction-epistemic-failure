@@ -111,4 +111,3 @@ Accepted run: `run-008-second-review-hardening`.
 
 This hardening does not establish correctness outside the tested matrix. It also
 does not turn IERL into a Codex patch or a reproduction of PR #41567.
-
