@@ -1,4 +1,4 @@
-# Independent Evidence Resolution Layer (IERL) v1
+# Independent Evidence Resolution Layer (IERL) v1.1
 
 This is a clean-room reference implementation of a deterministic evidence
 resolver for long-running agent sessions. It prevents model-authored text,
@@ -47,16 +47,21 @@ SHA-256 manifest.
 
 ## Validation result
 
-The accepted Windows run used 19 positive and adverse definitions, three
-independent subprocess repetitions each: 57/57 case executions passed, six of
-six apparatus probes passed, and the separate auditor reported zero errors.
+The accepted post-merge-hardening Windows run used 19 positive and adverse
+definitions, three subprocess repetitions each: 57/57 case executions passed,
+eight of eight apparatus probes passed, and the separate auditor reported zero
+errors. The unit suite passed 16/16 tests.
 
 The auditor also rejected an earlier controller-green run after detecting 57
-producer PID binding failures. That failed run remains documented; it is not
-counted as successful evidence.
+producer PID binding failures. After v1 was merged, automated review found three
+additional defects in journal identity binding, non-object input handling, and
+repetition-coordinate validation. v1.1 fixes all three and adds regression
+tests; the original green and merged states remain documented rather than being
+treated as proof of correctness.
 
 See [VALIDATION_REPORT.md](VALIDATION_REPORT.md) and
-[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md). CI repeats the same matrix on
+[POST_MERGE_REVIEW.md](POST_MERGE_REVIEW.md) for the exact review-to-fix trace.
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for unresolved work. CI repeats the same matrix on
 Windows, Linux, and macOS; a green workflow is required before cross-platform
 support can be claimed.
 
