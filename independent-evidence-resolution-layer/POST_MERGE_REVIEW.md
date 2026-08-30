@@ -205,17 +205,56 @@ missing-result probe must retain a result-less resolution document.
 Regression test:
 `AuditorRegressionTests.test_missing_result_probe_requires_missing_results_shape`.
 
+## Seventh adversarial review
+
+A fresh review of head `03cc608474505bca5ab8dc4e0b97ada86fdc72cc`
+completed at `2026-08-30T04:46:09Z` and reported three P1 findings and one P2.
+
+### P1: repetitions were not bound to producer nonce coordinates
+
+The auditor now requires the exact `<case>-rep-<repetition>` producer nonce and
+rejects reused retained producer identities across the 57 coordinates.
+
+Regression test:
+`AuditorRegressionTests.test_repetition_nonce_and_identity_are_coordinate_bound`.
+
+### P2: expected-mismatch probe did not pin its expected value and exit
+
+The fixture now requires expected `VERIFIED`, exit 0, a valid resolution
+envelope, and one actual `REJECTED` result.
+
+Regression test:
+`AuditorRegressionTests.test_expected_mismatch_probe_pins_expected_value_and_exit`.
+
+### P1: regular-case process outcomes were not independently retained
+
+Every producer and resolver launch now retains a separate PID/exit record. The
+auditor binds producer stdout hash, artifact hash, PID, exit, and empty stderr,
+and binds resolver PID, exit 0, empty stderr, and controller event fields.
+
+### P1: resolver stdout envelope was only partially checked
+
+The auditor now requires exact `RESOLUTION` classification, `IERL-1`, and one
+result object before comparing the complete result with the independent oracle.
+
+Regression test for both regular-process findings:
+`AuditorRegressionTests.test_regular_resolver_exit_and_envelope_are_required`.
+
+The first revised run, run 013, exposed an auditor fixture bug by rejecting the
+intentional `missing_exit` mutation. It is sealed as `HARNESS_DEFECT`. Run 014
+contains the corrected scope and is the accepted run.
+
 ## Revised validation
 
-Accepted run: `run-012-sixth-review-hardening`.
+Accepted run: `run-014-seventh-review-hardening-fixed`.
 
-- unit tests: 27/27;
+- unit tests: 30/30;
 - conformance executions: 57/57;
 - apparatus probes: 8/8;
 - revised independent auditor: PASS, zero errors;
-- evidence manifest entries: 431;
+- evidence manifest entries: 545;
 - evidence manifest SHA-256:
-  `933a646611b728ca125b0066ce0902aef4a8ae180c6a959782a23bd00908603c`;
+  `50d3b6ae2efb46e418dd188ba6ff5d75e9d18272dad7b1aeb1b068cb81380ba1`;
 - Codex target runs: 0;
 - model output used as evidence: false.
 
