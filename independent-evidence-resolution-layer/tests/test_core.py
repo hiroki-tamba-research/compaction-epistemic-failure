@@ -26,6 +26,9 @@ from audit_run import (  # noqa: E402
     load_journal_record,
     repetition_matrix_errors,
     probe_raw_errors,
+    producer_coordinate_errors,
+    resolver_envelope_ok,
+    resolver_process_outcome_ok,
     validate_evidence_record_schema,
 )
 from run_conformance import journal_envelope, load_stored_case_evidence  # noqa: E402
@@ -410,6 +413,59 @@ class AuditorRegressionTests(unittest.TestCase):
                 "missing_result_schema_detection:raw_fixture_shape",
                 probe_raw_errors(root, probe),
             )
+
+    def test_expected_mismatch_probe_pins_expected_value_and_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            probe_dir = root / "apparatus-expected-mismatch"
+            probe_dir.mkdir()
+            fixture = {
+                "expected_resolution": "REJECTED",
+                "exit_code": 9,
+                "document": {
+                    "classification": "RESOLUTION",
+                    "rule_version": "IERL-1",
+                    "results": [{"resolution": "REJECTED"}],
+                },
+            }
+            (probe_dir / "input.json").write_text(
+                json.dumps(fixture) + "\n", encoding="utf-8"
+            )
+            probe = {
+                "probe": "expected_mismatch_detection",
+                "probe_dir": "apparatus-expected-mismatch",
+                "actual": True,
+            }
+            self.assertIn(
+                "expected_mismatch_detection:raw_fixture_shape",
+                probe_raw_errors(root, probe),
+            )
+
+    def test_repetition_nonce_and_identity_are_coordinate_bound(self) -> None:
+        seen = {"pid:123;nonce:positive_verified-rep-1"}
+        errors = producer_coordinate_errors(
+            "positive_verified",
+            2,
+            {"pid": 123, "nonce": "positive_verified-rep-1"},
+            seen,
+        )
+        self.assertIn("producer_nonce_coordinate", errors)
+        self.assertIn("producer_identity_reused", errors)
+
+    def test_regular_resolver_exit_and_envelope_are_required(self) -> None:
+        resolver = {
+            "classification": "HARNESS_DEFECT",
+            "process_id": 123,
+            "rule_version": "BOGUS",
+            "results": [{"resolution": "VERIFIED"}, {"resolution": "VERIFIED"}],
+        }
+        self.assertFalse(resolver_envelope_ok(resolver))
+        self.assertFalse(resolver_process_outcome_ok(
+            {"child_pid": 123, "child_exit": 99, "stderr": "boom"},
+            resolver,
+            {"child_pid": 123, "exit_code": 99},
+            "boom",
+        ))
 
     def test_controller_captures_nonobject_case_journal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
