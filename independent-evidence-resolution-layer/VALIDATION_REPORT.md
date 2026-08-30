@@ -3,20 +3,22 @@
 ## Outcome
 
 The independent Python reference implementation and its external deterministic
-controller were created and tested locally. The accepted run is
-`20260830T-IERL-V1-006`.
+controller were created and tested locally. The current accepted run is
+`run-007-postmerge-hardening`. It supersedes run 006 for the current source but
+does not erase run 006's historical result.
 
 Accepted-run result:
 
-- unit tests: 12/12 passed;
+- unit tests: 16/16 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
-- apparatus probes: 6/6 passed;
+- apparatus probes: 8/8 passed;
 - independent auditor: PASS, zero errors;
-- manifest entries: 407, zero closure or hash errors;
-- distinct synthetic producer processes: 57;
-- distinct resolver processes: 57;
+- manifest entries: 411, zero closure or hash errors;
+- separate producer launches: 57, with 57 distinct PID-plus-nonce identities;
+- distinct producer PIDs observed: 53, demonstrating actual Windows PID reuse;
+- distinct resolver PIDs observed: 53;
 - Codex target runs: 0;
 - model output used as verifier evidence: false.
 
@@ -46,22 +48,30 @@ Earlier green summaries were not treated as final evidence.
   later independent auditor correctly returned FAIL with 57 producer PID binding
   errors;
 - run 006 fixed the raw-output path, added binding checks to the controller, and
-  passed the independent auditor with zero errors.
+  passed the then-current independent auditor with zero errors;
+- after merge, automated review identified three gaps that those checks did not
+  cover: journal identity fields were not independently bound to raw producer
+  PID and nonce, non-object JSON policies could escape structured failure, and
+  duplicate repetition IDs could satisfy a count-only audit;
+- run 007 fixes all three gaps, adds direct regression tests and two new
+  apparatus probes, and passes the revised independent auditor with zero errors.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation.
+an apparatus defect, not a successful validation. Run 006 remains a valid record
+of what the earlier test matrix observed, but it is not used as evidence that
+the post-merge review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/20260830T-IERL-V1-006/events.jsonl`
-- `evidence/runs/20260830T-IERL-V1-006/summary.json`
-- `evidence/runs/20260830T-IERL-V1-006/SHA256SUMS.txt`
+- `evidence/runs/run-007-postmerge-hardening/events.jsonl`
+- `evidence/runs/run-007-postmerge-hardening/summary.json`
+- `evidence/runs/run-007-postmerge-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`0e49584f4befa5addc3cffa5a1e8766cedd50a631929c070626003817df80251`
+`6398785db32b5ddc4da80814d852b30ad8b59d94c1c6b9ba476d71139678ad5d`
 
 ## Reproduction commands
 
@@ -72,7 +82,9 @@ python controller/audit_run.py evidence/runs/<generated-run-id>
 ```
 
 The auditor contains its own static expected-result table and does not import the
-resolver or controller case definitions.
+resolver or controller case definitions. It now requires each exact
+`(case_id, repetition)` coordinate once and independently reads the journal's
+two identity fields, binding them to raw producer PID and nonce evidence.
 
 ## Boundary
 
