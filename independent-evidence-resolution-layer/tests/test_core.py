@@ -23,6 +23,7 @@ from audit_run import (  # noqa: E402
     journal_identity_errors,
     load_journal_record,
     repetition_matrix_errors,
+    validate_evidence_record_schema,
 )
 from run_conformance import journal_envelope, load_stored_case_evidence  # noqa: E402
 from evidence_resolution.cli import resolve_command  # noqa: E402
@@ -281,6 +282,18 @@ class AuditorRegressionTests(unittest.TestCase):
             envelope["entry_hash"] = "f" * 64
             path.write_text(json.dumps(envelope) + "\n", encoding="utf-8")
             with self.assertRaises(ValueError):
+                load_journal_record(path)
+
+    def test_auditor_rejects_malformed_complete_record_schema(self) -> None:
+        record = record_for(b"CANARY\n").to_dict()
+        record["event_count"] = "3"
+        with self.assertRaisesRegex(ValueError, "event_count must be an integer"):
+            validate_evidence_record_schema(record)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "journal.jsonl"
+            envelope = journal_envelope({"event_type": "evidence_record", "record": record})
+            path.write_text(json.dumps(envelope) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "event_count must be an integer"):
                 load_journal_record(path)
 
     def test_controller_captures_nonobject_case_journal(self) -> None:
