@@ -1,4 +1,4 @@
-# Independent Evidence Resolution Layer (IERL) v1.2
+# Independent Evidence Resolution Layer (IERL) v1.3
 
 This is a clean-room reference implementation of a deterministic evidence
 resolver for long-running agent sessions. It prevents model-authored text,
@@ -47,25 +47,27 @@ SHA-256 manifest.
 
 ## Validation result
 
-The accepted second-review-hardening Windows run used 19 positive and adverse
+The accepted third-review-hardening Windows run used 19 positive and adverse
 definitions, three subprocess repetitions each: 57/57 case executions passed,
 eight of eight apparatus probes passed, and the separate auditor reported zero
-errors. The unit suite passed 19/19 tests.
+errors. The unit suite passed 22/22 tests.
 
 The auditor also rejected an earlier controller-green run after detecting 57
 producer PID binding failures. After v1 was merged, automated review found three
 additional defects in journal identity binding, non-object input handling, and
 repetition-coordinate validation. A second adversarial review then found strict
 field-type, apparatus-probe identity, and controller error-capture gaps. v1.2
-fixes all six review findings and adds regression tests; the original green and
-merged states remain documented rather than being treated as proof of
-correctness.
+fixed those gaps. A third adversarial review found Boolean journal-sequence,
+journal-chain-audit, and apparatus-verdict-recalculation gaps. v1.3 fixes all
+nine review findings and adds regression tests; the original green and merged
+states remain documented rather than being treated as proof of correctness.
 
 See [VALIDATION_REPORT.md](VALIDATION_REPORT.md) and
 [POST_MERGE_REVIEW.md](POST_MERGE_REVIEW.md) for the exact review-to-fix trace.
 See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for unresolved work. CI repeats the same matrix on
 Windows, Linux, and macOS; a green workflow is required before cross-platform
-support can be claimed.
+support can be claimed. Every CI matrix job retains its full evidence directory
+as a downloadable workflow artifact for 30 days.
 
 ## Security and comparison boundary
 
