@@ -67,6 +67,16 @@ EVIDENCE_STRING_FIELDS = frozenset({
     "source_kind",
     "rule_version",
 })
+PROBE_DIRECTORIES = {
+    "nonzero_exit_propagation": "apparatus-nonzero-exit",
+    "expected_mismatch_detection": "apparatus-expected-mismatch",
+    "missing_result_schema_detection": "apparatus-missing-result-schema",
+    "corrupt_journal_classification": "apparatus-corrupt-journal",
+    "journal_hash_tamper_classification": "apparatus-hash-tamper",
+    "corrupt_policy_classification": "apparatus-corrupt-policy",
+    "nonobject_policy_classification": "apparatus-nonobject-policy",
+    "nonobject_journal_payload_classification": "apparatus-nonobject-journal-payload",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -133,6 +143,123 @@ def validate_evidence_record_schema(record: dict[str, Any]) -> None:
             raise ValueError(f"artifact-{index} relative_path must be a string")
         if not is_sha256_hex(artifact["sha256"]):
             raise ValueError(f"artifact-{index} sha256 must be a SHA-256 hex digest")
+
+
+def load_verification_rule(path: Path, record_id: str) -> dict[str, Any] | None:
+    policy = load_json(path)
+    if policy.get("policy_version") != "IERL-POLICY-1" or not isinstance(
+        policy.get("rules"), dict
+    ):
+        raise ValueError(f"invalid verification policy: {path}")
+    raw_rule = policy["rules"].get(record_id)
+    if raw_rule is None:
+        return None
+    if not isinstance(raw_rule, dict):
+        raise ValueError(f"verification rule must be an object: {path}")
+    if not isinstance(raw_rule.get("record_id"), str) or not isinstance(
+        raw_rule.get("checker"), str
+    ):
+        raise ValueError(f"invalid verification rule identity: {path}")
+    required_keys = raw_rule.get("required_keys", [])
+    if not isinstance(required_keys, list) or any(
+        not isinstance(item, str) for item in required_keys
+    ):
+        raise ValueError(f"invalid required_keys: {path}")
+    expected_text = raw_rule.get("expected_text")
+    if expected_text is not None and not isinstance(expected_text, str):
+        raise ValueError(f"invalid expected_text: {path}")
+    return raw_rule
+
+
+def independent_case_resolution(
+    record: dict[str, Any], artifact_root: Path, current_generation_id: str,
+    verification_rule: dict[str, Any] | None,
+) -> dict[str, Any]:
+    def result(resolution: str, reason: str, checked: int = 0) -> dict[str, Any]:
+        return {
+            "record_id": record["record_id"],
+            "resolution": resolution,
+            "reason_code": reason,
+            "rule_version": "IERL-1",
+            "checked_artifacts": checked,
+        }
+
+    if record["source_kind"] == "model_text":
+        return result("OBSERVED", "MODEL_TEXT_NOT_EVIDENCE")
+    if record["rule_version"] != "IERL-1":
+        return result("UNKNOWN", "RULE_VERSION_MISMATCH")
+    if record["run_id"] != "run-conformance":
+        return result("UNKNOWN", "RUN_SCOPE_MISMATCH")
+    if record["generation_id"] != current_generation_id:
+        return result("UNKNOWN", "GENERATION_SCOPE_MISMATCH")
+    expected_sequence = list(range(1, record["event_count"] + 1))
+    if record["event_count"] < 1 or record["event_sequence"] != expected_sequence:
+        return result("UNKNOWN", "EVENT_SEQUENCE_INCOMPLETE")
+    if (
+        not record["producer_identity"]
+        or record["producer_identity"] != record["bound_producer_identity"]
+    ):
+        return result("UNKNOWN", "PRODUCER_IDENTITY_UNBOUND")
+    if record["producer_exit_status"] is None:
+        return result("UNKNOWN", "EXIT_STATUS_MISSING")
+    if record["producer_exit_status"] != 0:
+        return result("REJECTED", "PRODUCER_NONZERO_EXIT")
+    if not record["artifacts"]:
+        return result("UNKNOWN", "ARTIFACTS_MISSING")
+    if len(record["artifacts"]) != 1:
+        return result("UNKNOWN", "ARTIFACT_CARDINALITY_UNSUPPORTED")
+    if verification_rule is None or verification_rule["record_id"] != record["record_id"]:
+        return result("UNKNOWN", "VERIFICATION_RULE_MISSING")
+
+    root = artifact_root.resolve()
+    checked = 0
+    has_semantic_checker = False
+    for artifact in record["artifacts"]:
+        candidate = (root / artifact["relative_path"]).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            return result("REJECTED", "ARTIFACT_PATH_ESCAPE", checked)
+        if not candidate.is_file():
+            return result("UNKNOWN", "ARTIFACT_FILE_MISSING", checked)
+        try:
+            content = candidate.read_bytes()
+        except OSError:
+            return result("UNKNOWN", "ARTIFACT_FILE_UNREADABLE", checked)
+        digest = hashlib.sha256(content).hexdigest()
+        if digest != artifact["sha256"].lower():
+            return result("REJECTED", "ARTIFACT_HASH_MISMATCH", checked)
+        if artifact["sha256"].lower() != record["value_hash"].lower():
+            return result("REJECTED", "CLAIM_VALUE_HASH_MISMATCH", checked)
+        checked += 1
+        checker = verification_rule["checker"]
+        if checker in {"none", "hash_only"}:
+            continue
+        if checker == "contains_utf8":
+            has_semantic_checker = True
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError:
+                return result("REJECTED", "UTF8_CHECK_FAILED", checked)
+            expected_text = verification_rule.get("expected_text")
+            if expected_text is None or expected_text not in text:
+                return result("REJECTED", "TEXT_CHECK_FAILED", checked)
+            continue
+        if checker == "json_object_keys":
+            has_semantic_checker = True
+            try:
+                value = json.loads(content)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return result("REJECTED", "JSON_CHECK_FAILED", checked)
+            if not isinstance(value, dict) or not set(
+                verification_rule.get("required_keys", [])
+            ).issubset(value):
+                return result("REJECTED", "JSON_CHECK_FAILED", checked)
+            continue
+        return result("UNKNOWN", "CHECKER_UNRECOGNIZED", checked)
+    if not has_semantic_checker:
+        return result("STORED", "NO_SEMANTIC_CHECKER", checked)
+    return result("VERIFIED", "ALL_REQUIREMENTS_SATISFIED", checked)
 
 
 def load_journal_record(path: Path) -> dict[str, Any]:
@@ -284,6 +411,141 @@ def apparatus_probe_semantics_ok(name: str, probe: dict[str, Any]) -> bool:
     return False
 
 
+def comparison_detects_mismatch(fixture: dict[str, Any]) -> bool:
+    expected = fixture.get("expected_resolution")
+    document = fixture.get("document")
+    exit_code = fixture.get("exit_code")
+    if not isinstance(expected, str) or not isinstance(document, dict) or type(exit_code) is not int:
+        raise ValueError("invalid comparison probe fixture")
+    results = document.get("results") or []
+    actual = results[-1].get("resolution") if results and isinstance(results[-1], dict) else None
+    matched = (
+        exit_code == 0
+        and document.get("classification") == "RESOLUTION"
+        and document.get("rule_version") == "IERL-1"
+        and actual == expected
+    )
+    return not matched
+
+
+def negative_probe_fixture_ok(name: str, probe_dir: Path) -> bool:
+    journal_path = probe_dir / "journal.jsonl"
+    policy_path = probe_dir / "policy.json"
+    if name == "corrupt_journal_classification":
+        try:
+            json.loads(journal_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return True
+        return False
+    if name == "journal_hash_tamper_classification":
+        try:
+            load_journal_record(journal_path)
+        except ValueError as exc:
+            return "journal entry hash mismatch" in str(exc)
+        return False
+    if name == "corrupt_policy_classification":
+        try:
+            json.loads(policy_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return True
+        return False
+    if name == "nonobject_policy_classification":
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        return not isinstance(policy, dict)
+    if name == "nonobject_journal_payload_classification":
+        entries = load_jsonl_objects(journal_path)
+        if len(entries) != 1:
+            return False
+        entry = entries[0]
+        unsigned = {
+            "sequence": entry.get("sequence"),
+            "previous_hash": entry.get("previous_hash"),
+            "payload": entry.get("payload"),
+        }
+        calculated = hashlib.sha256(
+            json.dumps(
+                unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        return (
+            type(entry.get("sequence")) is int
+            and entry.get("sequence") == 1
+            and entry.get("previous_hash") == "0" * 64
+            and entry.get("entry_hash") == calculated
+            and not isinstance(entry.get("payload"), dict)
+        )
+    return False
+
+
+def probe_raw_errors(
+    run_root: Path, probe: dict[str, Any]
+) -> list[str]:
+    name = probe.get("probe")
+    if not isinstance(name, str) or name not in PROBE_DIRECTORIES:
+        return []
+    expected_dir = PROBE_DIRECTORIES[name]
+    errors: list[str] = []
+    if probe.get("probe_dir") != expected_dir:
+        errors.append(f"{name}:probe_dir_binding")
+    probe_dir = run_root / expected_dir
+    try:
+        if name in {"expected_mismatch_detection", "missing_result_schema_detection"}:
+            fixture = load_json(probe_dir / "input.json")
+            if comparison_detects_mismatch(fixture) is not True:
+                errors.append(f"{name}:raw_fixture_semantics")
+            if probe.get("actual") is not True:
+                errors.append(f"{name}:raw_event_binding")
+            return errors
+
+        exit_document = load_json(probe_dir / "resolver.exit.json")
+        raw_exit = exit_document.get("exit_code")
+        raw_pid = exit_document.get("child_pid")
+        stdout_text = (probe_dir / "resolver.stdout.json").read_text(encoding="utf-8").strip()
+        stderr_text = (probe_dir / "resolver.stderr.txt").read_text(encoding="utf-8").strip()
+        if type(raw_exit) is not int or type(raw_pid) is not int:
+            errors.append(f"{name}:raw_process_schema")
+            return errors
+        if probe.get("child_pid") != raw_pid:
+            errors.append(f"{name}:raw_pid_binding")
+        if name == "nonzero_exit_propagation":
+            if raw_exit != 37 or stdout_text or stderr_text:
+                errors.append(f"{name}:raw_process_outcome")
+            if probe.get("actual") != raw_exit:
+                errors.append(f"{name}:raw_event_binding")
+            return errors
+
+        document = json.loads(stdout_text)
+        if not isinstance(document, dict):
+            raise ValueError("probe stdout is not an object")
+        expected_codes = {
+            "corrupt_journal_classification": "JOURNAL_PARSE",
+            "journal_hash_tamper_classification": "JOURNAL_HASH",
+            "corrupt_policy_classification": "EVIDENCE_SCHEMA",
+            "nonobject_policy_classification": "EVIDENCE_SCHEMA",
+            "nonobject_journal_payload_classification": "JOURNAL_SCHEMA",
+        }
+        expected_code = expected_codes[name]
+        if (
+            raw_exit != 70
+            or stderr_text
+            or document.get("classification") != "HARNESS_DEFECT"
+            or document.get("error_code") != expected_code
+        ):
+            errors.append(f"{name}:raw_process_outcome")
+        if (
+            probe.get("actual_exit") != raw_exit
+            or probe.get("actual_classification") != document.get("classification")
+            or ("actual_error_code" in probe and probe.get("actual_error_code") != document.get("error_code"))
+            or probe.get("stderr") != stderr_text
+        ):
+            errors.append(f"{name}:raw_event_binding")
+        if not negative_probe_fixture_ok(name, probe_dir):
+            errors.append(f"{name}:raw_fixture_semantics")
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        errors.append(f"{name}:raw_probe:{exc}")
+    return errors
+
+
 def audit(run_root: Path) -> dict[str, Any]:
     errors: list[str] = []
     try:
@@ -295,6 +557,8 @@ def audit(run_root: Path) -> dict[str, Any]:
     probes = [event for event in events if event.get("event_type") == "apparatus_probe"]
     errors.extend(repetition_matrix_errors(cases))
     errors.extend(apparatus_probe_errors(probes))
+    for probe in probes:
+        errors.extend(probe_raw_errors(run_root, probe))
     distribution: Counter[str] = Counter()
     for case in cases:
         case_id = case.get("case_id")
@@ -320,8 +584,21 @@ def audit(run_root: Path) -> dict[str, Any]:
             producer = load_json(case_dir / "producer.stdout.json")
             resolver = load_json(case_dir / "resolver.stdout.json")
             journal_record = load_journal_record(case_dir / "journal.jsonl")
+            verification_rule = load_verification_rule(
+                case_dir / "policy.json", journal_record["record_id"]
+            )
+            current_generation = (
+                "generation-2" if case_id == "generation_mismatch" else "generation-1"
+            )
+            independently_resolved = independent_case_resolution(
+                journal_record,
+                case_dir / "artifacts",
+                current_generation,
+                verification_rule,
+            )
             results = resolver.get("results") or []
-            raw_actual = results[-1].get("resolution") if results else None
+            raw_result = results[-1] if results and isinstance(results[-1], dict) else {}
+            raw_actual = raw_result.get("resolution")
             if producer.get("pid") != case.get("producer_pid"):
                 errors.append(f"{label}:producer_pid_binding")
             if resolver.get("process_id") != case.get("child_pid"):
@@ -333,6 +610,10 @@ def audit(run_root: Path) -> dict[str, Any]:
                 errors.append(f"{label}:{identity_error}")
             if raw_actual != actual:
                 errors.append(f"{label}:raw_resolution_binding")
+            if independently_resolved["resolution"] != expected:
+                errors.append(f"{label}:independent_resolution_mismatch")
+            if raw_result != independently_resolved:
+                errors.append(f"{label}:resolver_oracle_mismatch")
             if sha256_file(case_dir / "journal.jsonl") != case.get("journal_sha256"):
                 errors.append(f"{label}:journal_hash")
             if sha256_file(case_dir / "policy.json") != case.get("policy_sha256"):
