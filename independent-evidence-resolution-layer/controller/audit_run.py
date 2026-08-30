@@ -262,6 +262,122 @@ def independent_case_resolution(
     return result("VERIFIED", "ALL_REQUIREMENTS_SATISFIED", checked)
 
 
+def case_fixture_errors(
+    case_id: str,
+    record: dict[str, Any],
+    artifact_root: Path,
+    current_generation_id: str,
+    verification_rule: dict[str, Any] | None,
+) -> list[str]:
+    errors: list[str] = []
+    expected_record_id = f"record-{case_id}"
+    if record["record_id"] != expected_record_id:
+        errors.append("record_id")
+    if record["run_id"] != "run-conformance":
+        errors.append("run_id")
+    if record["generation_id"] != "generation-1":
+        errors.append("record_generation")
+    expected_current_generation = (
+        "generation-2" if case_id == "generation_mismatch" else "generation-1"
+    )
+    if current_generation_id != expected_current_generation:
+        errors.append("current_generation")
+    if record["subject"] != "fixture" or record["predicate"] != "contains_canary":
+        errors.append("claim_identity")
+    expected_source = "model_text" if case_id == "model_text_only" else "artifact"
+    if record["source_kind"] != expected_source:
+        errors.append("source_kind")
+    expected_rule_version = "UNKNOWN-9" if case_id == "rule_version_mismatch" else "IERL-1"
+    if record["rule_version"] != expected_rule_version:
+        errors.append("rule_version")
+    expected_exit = None if case_id == "missing_exit" else (143 if case_id == "nonzero_exit_143" else 0)
+    if record["producer_exit_status"] != expected_exit:
+        errors.append("producer_exit_status")
+    expected_sequence = [1, 3] if case_id == "sequence_gap" else [1, 2, 3]
+    if record["event_count"] != 3 or record["event_sequence"] != expected_sequence:
+        errors.append("event_sequence")
+    if len(record["artifacts"]) != 1:
+        errors.append("artifact_cardinality")
+        return errors
+    artifact = record["artifacts"][0]
+    expected_path = "../outside.txt" if case_id == "path_escape" else "artifact.txt"
+    if artifact["relative_path"] != expected_path:
+        errors.append("artifact_path")
+    root = artifact_root.resolve()
+    candidate = (root / artifact["relative_path"]).resolve()
+    inside = True
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        inside = False
+    if case_id == "path_escape":
+        if inside:
+            errors.append("path_escape_missing")
+        return errors
+    if not inside:
+        errors.append("unexpected_path_escape")
+        return errors
+    exists = candidate.is_file()
+    if case_id == "missing_artifact":
+        if exists:
+            errors.append("missing_artifact_not_exercised")
+        return errors
+    if not exists:
+        errors.append("artifact_missing")
+        return errors
+    content = candidate.read_bytes()
+    digest = hashlib.sha256(content).hexdigest()
+    artifact_hash_matches = digest == artifact["sha256"].lower()
+    value_hash_matches = artifact["sha256"].lower() == record["value_hash"].lower()
+    if case_id == "hash_mismatch":
+        if artifact_hash_matches:
+            errors.append("hash_mismatch_not_exercised")
+        return errors
+    if not artifact_hash_matches:
+        errors.append("unexpected_artifact_hash_mismatch")
+    if case_id == "claim_value_hash_mismatch":
+        if value_hash_matches or record["value_hash"] != "0" * 64:
+            errors.append("claim_value_mismatch_not_exercised")
+    elif not value_hash_matches:
+        errors.append("unexpected_claim_value_mismatch")
+
+    expected_checker = {
+        "stored_no_checker": "none",
+        "hash_only_no_semantics": "hash_only",
+        "unknown_checker": "model_judgment",
+        "json_schema_pass": "json_object_keys",
+        "json_schema_fail": "json_object_keys",
+    }.get(case_id, "contains_utf8")
+    if case_id == "policy_missing":
+        if verification_rule is not None:
+            errors.append("policy_missing_not_exercised")
+        return errors
+    if verification_rule is None or verification_rule.get("checker") != expected_checker:
+        errors.append("checker")
+        return errors
+    if expected_checker == "contains_utf8":
+        expected_text = f"CANARY::{case_id}::IERL-1"
+        if verification_rule.get("expected_text") != expected_text:
+            errors.append("expected_text")
+        text = content.decode("utf-8")
+        contains = expected_text in text
+        if case_id == "semantic_canary_missing":
+            if contains:
+                errors.append("semantic_failure_not_exercised")
+        elif not contains:
+            errors.append("unexpected_semantic_failure")
+    elif expected_checker == "json_object_keys":
+        if verification_rule.get("required_keys") != ["canary", "ok"]:
+            errors.append("required_keys")
+        value = json.loads(content)
+        has_keys = isinstance(value, dict) and {"canary", "ok"}.issubset(value)
+        if case_id == "json_schema_pass" and not has_keys:
+            errors.append("json_pass_not_exercised")
+        if case_id == "json_schema_fail" and has_keys:
+            errors.append("json_failure_not_exercised")
+    return errors
+
+
 def load_journal_record(path: Path) -> dict[str, Any]:
     entries = load_jsonl_objects(path)
     if len(entries) != 1:
@@ -493,6 +609,22 @@ def probe_raw_errors(
             fixture = load_json(probe_dir / "input.json")
             if comparison_detects_mismatch(fixture) is not True:
                 errors.append(f"{name}:raw_fixture_semantics")
+            document = fixture.get("document")
+            if not isinstance(document, dict):
+                errors.append(f"{name}:raw_fixture_shape")
+            elif name == "expected_mismatch_detection":
+                results = document.get("results")
+                if (
+                    document.get("classification") != "RESOLUTION"
+                    or document.get("rule_version") != "IERL-1"
+                    or not isinstance(results, list)
+                    or len(results) != 1
+                    or not isinstance(results[0], dict)
+                    or results[0].get("resolution") != "REJECTED"
+                ):
+                    errors.append(f"{name}:raw_fixture_shape")
+            elif "results" in document:
+                errors.append(f"{name}:raw_fixture_shape")
             if probe.get("actual") is not True:
                 errors.append(f"{name}:raw_event_binding")
             return errors
@@ -517,6 +649,8 @@ def probe_raw_errors(
         document = json.loads(stdout_text)
         if not isinstance(document, dict):
             raise ValueError("probe stdout is not an object")
+        if document.get("process_id") != raw_pid:
+            errors.append(f"{name}:raw_stdout_pid_binding")
         expected_codes = {
             "corrupt_journal_classification": "JOURNAL_PARSE",
             "journal_hash_tamper_classification": "JOURNAL_HASH",
@@ -590,6 +724,14 @@ def audit(run_root: Path) -> dict[str, Any]:
             current_generation = (
                 "generation-2" if case_id == "generation_mismatch" else "generation-1"
             )
+            for fixture_error in case_fixture_errors(
+                case_id,
+                journal_record,
+                case_dir / "artifacts",
+                current_generation,
+                verification_rule,
+            ):
+                errors.append(f"{label}:fixture:{fixture_error}")
             independently_resolved = independent_case_resolution(
                 journal_record,
                 case_dir / "artifacts",
