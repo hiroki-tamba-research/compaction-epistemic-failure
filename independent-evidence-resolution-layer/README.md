@@ -1,4 +1,4 @@
-# Independent Evidence Resolution Layer (IERL) v1.3
+# Independent Evidence Resolution Layer (IERL) v1.4
 
 This is a clean-room reference implementation of a deterministic evidence
 resolver for long-running agent sessions. It prevents model-authored text,
@@ -47,10 +47,10 @@ SHA-256 manifest.
 
 ## Validation result
 
-The accepted third-review-hardening Windows run used 19 positive and adverse
+The accepted fourth-review-hardening Windows run used 19 positive and adverse
 definitions, three subprocess repetitions each: 57/57 case executions passed,
 eight of eight apparatus probes passed, and the separate auditor reported zero
-errors. The unit suite passed 22/22 tests.
+errors. The unit suite passed 23/23 tests.
 
 The auditor also rejected an earlier controller-green run after detecting 57
 producer PID binding failures. After v1 was merged, automated review found three
@@ -59,7 +59,9 @@ repetition-coordinate validation. A second adversarial review then found strict
 field-type, apparatus-probe identity, and controller error-capture gaps. v1.2
 fixed those gaps. A third adversarial review found Boolean journal-sequence,
 journal-chain-audit, and apparatus-verdict-recalculation gaps. v1.3 fixes all
-nine review findings and adds regression tests; the original green and merged
+nine review findings. A fourth adversarial review found that the auditor still
+did not validate the complete retained evidence-record schema. v1.4 fixes all
+ten review findings and adds regression tests; the original green and merged
 states remain documented rather than being treated as proof of correctness.
 
 See [VALIDATION_REPORT.md](VALIDATION_REPORT.md) and
