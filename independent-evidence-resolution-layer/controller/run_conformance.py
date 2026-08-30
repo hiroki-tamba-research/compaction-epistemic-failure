@@ -249,21 +249,47 @@ def compare_resolution(expected: str, document: dict[str, Any], exit_code: int) 
     return passed, actual
 
 
-def run_apparatus_probes(python: Path, events: Path) -> list[dict[str, Any]]:
+def retain_probe_process(
+    case_dir: Path, pid: int, exit_code: int, stdout: str, stderr: str
+) -> None:
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (case_dir / "resolver.stdout.json").write_text(
+        stdout + ("\n" if stdout else ""), encoding="utf-8"
+    )
+    (case_dir / "resolver.stderr.txt").write_text(
+        stderr + ("\n" if stderr else ""), encoding="utf-8"
+    )
+    (case_dir / "resolver.exit.json").write_text(
+        canonical_json({"child_pid": pid, "exit_code": exit_code}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def run_apparatus_probes(
+    python: Path, run_root: Path, events: Path
+) -> list[dict[str, Any]]:
     probes = []
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(SOURCE_ROOT)
     child = subprocess.Popen(
         [str(python), "-m", "evidence_resolution.cli", "self-exit", "--code", "37"],
         env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
-    child.wait(timeout=30)
+    stdout, stderr = child.communicate(timeout=30)
+    stdout = stdout.strip()
+    stderr = stderr.strip()
+    exit_dir = run_root / "apparatus-nonzero-exit"
+    retain_probe_process(exit_dir, child.pid, int(child.returncode), stdout, stderr)
     exit_probe = {
         "probe": "nonzero_exit_propagation",
         "expected": 37,
         "actual": child.returncode,
         "pass": child.returncode == 37,
         "child_pid": child.pid,
+        "probe_dir": exit_dir.name,
     }
     probes.append(exit_probe)
     append_event(events, {"event_type": "apparatus_probe", **exit_probe})
@@ -274,22 +300,44 @@ def run_apparatus_probes(python: Path, events: Path) -> list[dict[str, Any]]:
         "results": [{"resolution": "REJECTED"}],
     }
     mismatch_detected = not compare_resolution("VERIFIED", mismatch_document, 0)[0]
+    mismatch_dir = run_root / "apparatus-expected-mismatch"
+    mismatch_dir.mkdir(parents=True)
+    (mismatch_dir / "input.json").write_text(
+        canonical_json({
+            "expected_resolution": "VERIFIED",
+            "document": mismatch_document,
+            "exit_code": 0,
+        }) + "\n",
+        encoding="utf-8",
+    )
     compare_probe = {
         "probe": "expected_mismatch_detection",
         "expected": True,
         "actual": mismatch_detected,
         "pass": mismatch_detected is True,
+        "probe_dir": mismatch_dir.name,
     }
     probes.append(compare_probe)
     append_event(events, {"event_type": "apparatus_probe", **compare_probe})
 
     malformed_document = {"classification": "RESOLUTION", "rule_version": RULE_VERSION}
     malformed_detected = not compare_resolution("VERIFIED", malformed_document, 0)[0]
+    malformed_dir = run_root / "apparatus-missing-result-schema"
+    malformed_dir.mkdir(parents=True)
+    (malformed_dir / "input.json").write_text(
+        canonical_json({
+            "expected_resolution": "VERIFIED",
+            "document": malformed_document,
+            "exit_code": 0,
+        }) + "\n",
+        encoding="utf-8",
+    )
     schema_probe = {
         "probe": "missing_result_schema_detection",
         "expected": True,
         "actual": malformed_detected,
         "pass": malformed_detected is True,
+        "probe_dir": malformed_dir.name,
     }
     probes.append(schema_probe)
     append_event(events, {"event_type": "apparatus_probe", **schema_probe})
@@ -302,6 +350,7 @@ def run_corrupt_journal_probe(python: Path, run_root: Path, events: Path) -> dic
     (case_dir / "journal.jsonl").write_text("{not-json}\n", encoding="utf-8")
     write_policy(case_dir / "policy.json", None)
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -320,6 +369,7 @@ def run_corrupt_journal_probe(python: Path, run_root: Path, events: Path) -> dic
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -334,6 +384,7 @@ def run_hash_tamper_probe(python: Path, run_root: Path, events: Path) -> dict[st
     (case_dir / "journal.jsonl").write_text(canonical_json(envelope) + "\n", encoding="utf-8")
     write_policy(case_dir / "policy.json", None)
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -354,6 +405,7 @@ def run_hash_tamper_probe(python: Path, run_root: Path, events: Path) -> dict[st
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -365,6 +417,7 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
     write_journal(case_dir / "journal.jsonl", base_record("policy", "0" * 64))
     (case_dir / "policy.json").write_text("{broken-policy}\n", encoding="utf-8")
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -383,6 +436,7 @@ def run_corrupt_policy_probe(python: Path, run_root: Path, events: Path) -> dict
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -394,6 +448,7 @@ def run_nonobject_policy_probe(python: Path, run_root: Path, events: Path) -> di
     write_journal(case_dir / "journal.jsonl", base_record("policy-shape", "0" * 64))
     (case_dir / "policy.json").write_text("[]\n", encoding="utf-8")
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -415,6 +470,7 @@ def run_nonobject_policy_probe(python: Path, run_root: Path, events: Path) -> di
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -429,6 +485,7 @@ def run_nonobject_journal_payload_probe(
     (case_dir / "journal.jsonl").write_text(canonical_json(envelope) + "\n", encoding="utf-8")
     write_policy(case_dir / "policy.json", None)
     pid, exit_code, stdout, stderr = launch_resolver(python, case_dir, "generation-1")
+    retain_probe_process(case_dir, pid, exit_code, stdout, stderr)
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError:
@@ -450,6 +507,7 @@ def run_nonobject_journal_payload_probe(
         "pass": passed,
         "child_pid": pid,
         "stderr": stderr,
+        "probe_dir": case_dir.name,
     }
     append_event(events, {"event_type": "apparatus_probe", **probe})
     return probe
@@ -485,7 +543,7 @@ def main() -> int:
         "repetitions": REPETITIONS,
     })
 
-    probes = run_apparatus_probes(args.python, events)
+    probes = run_apparatus_probes(args.python, run_root, events)
     probes.append(run_corrupt_journal_probe(args.python, run_root, events))
     probes.append(run_hash_tamper_probe(args.python, run_root, events))
     probes.append(run_corrupt_policy_probe(args.python, run_root, events))
