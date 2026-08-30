@@ -1,4 +1,4 @@
-# Independent Evidence Resolution Layer (IERL) v1.4
+# Independent Evidence Resolution Layer (IERL) v1.5
 
 This is a clean-room reference implementation of a deterministic evidence
 resolver for long-running agent sessions. It prevents model-authored text,
@@ -47,10 +47,10 @@ SHA-256 manifest.
 
 ## Validation result
 
-The accepted fourth-review-hardening Windows run used 19 positive and adverse
+The accepted fifth-review-hardening Windows run used 19 positive and adverse
 definitions, three subprocess repetitions each: 57/57 case executions passed,
 eight of eight apparatus probes passed, and the separate auditor reported zero
-errors. The unit suite passed 23/23 tests.
+errors. The unit suite passed 25/25 tests.
 
 The auditor also rejected an earlier controller-green run after detecting 57
 producer PID binding failures. After v1 was merged, automated review found three
@@ -61,8 +61,12 @@ fixed those gaps. A third adversarial review found Boolean journal-sequence,
 journal-chain-audit, and apparatus-verdict-recalculation gaps. v1.3 fixes all
 nine review findings. A fourth adversarial review found that the auditor still
 did not validate the complete retained evidence-record schema. v1.4 fixes all
-ten review findings and adds regression tests; the original green and merged
-states remain documented rather than being treated as proof of correctness.
+ten review findings. A fifth adversarial review showed that case verdicts and
+probe outcomes were still not recomputed from retained inputs. v1.5 fixes all
+twelve review findings: the auditor now applies an independent case oracle and
+binds every probe verdict to its retained fixture, stdout, stderr, exit status,
+and process identity. The original green and merged states remain documented
+rather than being treated as proof of correctness.
 
 See [VALIDATION_REPORT.md](VALIDATION_REPORT.md) and
 [POST_MERGE_REVIEW.md](POST_MERGE_REVIEW.md) for the exact review-to-fix trace.
