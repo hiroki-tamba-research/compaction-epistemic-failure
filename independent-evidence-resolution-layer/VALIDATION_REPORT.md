@@ -4,12 +4,12 @@
 
 The independent Python reference implementation and its external deterministic
 controller were created and tested locally. The current accepted run is
-`run-007-postmerge-hardening`. It supersedes run 006 for the current source but
-does not erase run 006's historical result.
+`run-008-second-review-hardening`. It supersedes runs 006 and 007 for the current
+source but does not erase their historical results.
 
 Accepted-run result:
 
-- unit tests: 16/16 passed;
+- unit tests: 19/19 passed;
 - conformance definitions: 19;
 - repetitions per definition: 3;
 - conformance executions: 57/57 passed;
@@ -54,24 +54,31 @@ Earlier green summaries were not treated as final evidence.
   PID and nonce, non-object JSON policies could escape structured failure, and
   duplicate repetition IDs could satisfy a count-only audit;
 - run 007 fixes all three gaps, adds direct regression tests and two new
-  apparatus probes, and passes the revised independent auditor with zero errors.
+  apparatus probes, and passes the revised independent auditor with zero errors;
+- a second adversarial review then found three more gaps: malformed scalar types
+  could be coerced into valid evidence, eight passing probes could omit required
+  probe identities, and a malformed regular-case journal could escape the
+  controller's caught error path;
+- run 008 removes scalar coercion, requires every named probe exactly once, and
+  converts stored-evidence shape failures into case-level non-passing results.
+  It passes 19 unit tests, the full conformance matrix, and the revised auditor.
 
 Run 005 remains preserved with its original SHA-256 manifest. It is evidence of
-an apparatus defect, not a successful validation. Run 006 remains a valid record
-of what the earlier test matrix observed, but it is not used as evidence that
-the post-merge review findings were absent.
+an apparatus defect, not a successful validation. Runs 006 and 007 remain valid
+records of what their earlier matrices observed, but neither is used as evidence
+that later review findings were absent.
 
 ## Accepted evidence
 
-- `evidence/runs/run-007-postmerge-hardening/events.jsonl`
-- `evidence/runs/run-007-postmerge-hardening/summary.json`
-- `evidence/runs/run-007-postmerge-hardening/SHA256SUMS.txt`
+- `evidence/runs/run-008-second-review-hardening/events.jsonl`
+- `evidence/runs/run-008-second-review-hardening/summary.json`
+- `evidence/runs/run-008-second-review-hardening/SHA256SUMS.txt`
 - per-case producer stdout/stderr, resolver stdout/stderr, journal, policy, and
   artifact files below the accepted run directory.
 
 Accepted evidence-manifest SHA-256:
 
-`6398785db32b5ddc4da80814d852b30ad8b59d94c1c6b9ba476d71139678ad5d`
+`482020598ecedcbf09453479eb1ad845ce7efc972529837aba2288d8b0be6a38`
 
 ## Reproduction commands
 
@@ -85,6 +92,7 @@ The auditor contains its own static expected-result table and does not import th
 resolver or controller case definitions. It now requires each exact
 `(case_id, repetition)` coordinate once and independently reads the journal's
 two identity fields, binding them to raw producer PID and nonce evidence.
+It also requires all eight named apparatus probes exactly once.
 
 ## Boundary
 
