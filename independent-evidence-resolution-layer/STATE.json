@@ -1,9 +1,9 @@
 {
-  "accepted_evidence_manifest_sha256": "0e49584f4befa5addc3cffa5a1e8766cedd50a631929c070626003817df80251",
-  "accepted_run": "20260830T-IERL-V1-006",
+  "accepted_evidence_manifest_sha256": "6398785db32b5ddc4da80814d852b30ad8b59d94c1c6b9ba476d71139678ad5d",
+  "accepted_run": "run-007-postmerge-hardening",
   "codex_target_runs": 0,
-  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_SELF_VALIDATED",
-  "external_publication": false,
+  "current_state": "INDEPENDENT_REFERENCE_IMPLEMENTATION_POSTMERGE_HARDENED",
+  "external_publication": true,
   "independent_auditor": "PASS",
   "martin_logic_used": false,
   "model_output_used_as_evidence": false,
@@ -11,6 +11,11 @@
     "reason": "producer raw output overwritten by resolver output; 57 PID binding failures",
     "run_id": "20260830T-IERL-V1-005",
     "state": "HARNESS_DEFECT"
+  },
+  "superseded_validation": {
+    "reason": "post-merge review found three gaps not covered by the then-current checks",
+    "run_id": "20260830T-IERL-V1-006",
+    "state": "HISTORICAL_PASS_NOT_CURRENT_PROOF"
   },
   "upstream_codex_integration": "NOT_IMPLEMENTED"
 }
